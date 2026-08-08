@@ -30,6 +30,8 @@ Think of a GCP Free Account like a prepaid gym pass with two benefits: a **$300 
 
 A Free Account sits at the absolute foundation of your journey in Google Cloud. It establishes your root identity, links your personal or corporate payment profile, and provisions your initial Billing Account and default Project.
 
+![GCP Free Account Architecture](images/architecture.png)
+
 ```mermaid
 flowchart TD
     Identity["Google Account (User Identity)"]
