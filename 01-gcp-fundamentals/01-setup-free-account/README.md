@@ -1,14 +1,3 @@
-```text
-GCP Hyperscaler Learning Path
-
-Current Section: GCP Fundamentals
-Current Topic: Setup Free Account
-Topic Number: 1
-
-Previous Topic: None
-Next Topic: What is GCP
-```
-
 # Topic 01: Setup Free Account
 
 ---
