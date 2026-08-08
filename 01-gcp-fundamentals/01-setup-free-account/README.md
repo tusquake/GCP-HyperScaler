@@ -347,9 +347,5 @@ gcloud config list project
 
 ## 18. Learning Connection
 
-```text
-Previous Topic: None → Current Topic: 01. Setup Free Account → Next Topic: 02. What is GCP
-```
-
-- **Prerequisites**: None. This is the entry point to the GCP Hyperscaler Roadmap.
-- **Next Step**: Now that your environment and free billing safety nets are established, move to **[02. What is GCP]** to understand the foundational cloud architecture, global infrastructure, and service offerings of Google Cloud Platform.
+- **Previous Topic**: None
+- **Next Topic**: [02. What is GCP](../02-what-is-gcp/README.md)

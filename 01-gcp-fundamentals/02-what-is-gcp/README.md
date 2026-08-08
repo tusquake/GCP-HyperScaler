@@ -340,9 +340,5 @@ gcloud services list --enabled
 
 ## 18. Learning Connection
 
-```text
-Previous Topic: 01. Setup Free Account → Current Topic: 02. What is GCP → Next Topic: 03. Why GCP is Used
-```
-
-- **Prerequisites**: Topic 01 (Setup Free Account) established your GCP environment and billing safety nets.
-- **Next Step**: Proceed to **[03. Why GCP is Used](01-gcp-fundamentals/03-why-gcp-is-used/README.md)** to explore Google Cloud's core competitive advantages, global fiber network, data engineering dominance, and why major enterprises choose GCP over alternatives.
+- **Previous Topic**: [01. Setup Free Account](../01-setup-free-account/README.md)
+- **Next Topic**: [03. Why GCP is Used](../03-why-gcp-is-used/README.md)
