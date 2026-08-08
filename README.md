@@ -202,4 +202,4 @@ Each topic module contains a dedicated `README.md` engineered to deliver:
 - **Visual flowcharts and architecture diagrams** using standard Mermaid syntax and clean minimalist diagrams.
 - **Actionable hands-on console and `gcloud` CLI workflows** with safety verification and cleanup.
 - **Production security, FinOps budget guardrails, and enterprise hyperscaler context**.
-- **Tech Lead interview Q&As** and quick decision matrix guides.
+- **Real Project Q&As** and quick decision matrix guides.

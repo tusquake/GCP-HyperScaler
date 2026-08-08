@@ -266,7 +266,7 @@ In a hyperscaler environment, GCP is managed as an automated software platform. 
 
 ---
 
-## 14. Real Project / Tech Lead Questions
+## 14. Real Project Questions
 
 ### Q1: What makes GCP's network architecture unique compared to other cloud providers?
 **Answer:** Google owns and operates its own private global fiber-optic network backbone. When traffic enters GCP through Anycast IP addresses at an edge PoP, it immediately enters Google's private network rather than traversing the public internet, drastically reducing latency and packet loss.

@@ -277,7 +277,7 @@ In a hyperscaler environment, developers **never** sign up with personal credit 
 
 ---
 
-## 14. Real Project / Tech Lead Questions
+## 14. Real Project Questions
 
 ### Q1: What happens to my running workloads when the $300 trial credit expires?
 **Answer:** GCP automatically shuts down and pauses your resources. Your data is retained for a grace period (typically 30 days), giving you time to upgrade to a paid account or export data before permanent deletion. Google will *never* automatically charge your credit card unless you explicitly click **Upgrade**.

@@ -269,7 +269,7 @@ In a hyperscaler environment, organizations systematically move up the stack—s
 
 ---
 
-## 14. Real Project / Tech Lead Questions
+## 14. Real Project Questions
 
 ### Q1: When should an enterprise choose IaaS over Serverless/PaaS on GCP?
 **Answer:** Choose IaaS (Compute Engine) when workloads require kernel-level modifications, legacy operating system versions, specialized third-party software agents, or non-HTTP custom networking protocols. Choose Serverless/PaaS (Cloud Run, GKE) for modern, stateless containerized microservices to eliminate OS management overhead.

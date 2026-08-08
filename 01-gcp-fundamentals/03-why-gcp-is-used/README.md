@@ -250,7 +250,7 @@ In a hyperscaler environment, enterprises leverage GCP's global network and data
 
 ---
 
-## 14. Real Project / Tech Lead Questions
+## 14. Real Project Questions
 
 ### Q1: Why do data-intensive companies choose BigQuery over traditional data warehouses?
 **Answer:** BigQuery decouples compute from storage completely. Storage scales automatically at low object-storage rates, while compute (Dremel slots) scales instantly to thousands of cores on demand. Users execute SQL queries across petabytes of data in seconds without provisioning database clusters.
