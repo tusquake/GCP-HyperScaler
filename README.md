@@ -1,5 +1,7 @@
 # GCP Hyperscaler Learning Roadmap
 
+![GCP Hyperscaler Learning Hub](assets/gcp_learning_hub_banner.png)
+
 Welcome to the **GCP Hyperscaler Learning Curriculum**. This repository contains a structured, end-to-end learning path designed to take engineers from fundamental concepts to enterprise hyperscaler production readiness on Google Cloud Platform (GCP).
 
 ---
