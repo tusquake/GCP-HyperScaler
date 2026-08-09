@@ -67,6 +67,15 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${RUNNER_EMAIL}" \
   --role="roles/logging.logWriter" --quiet >/dev/null
 
+# Grant Service Account Token Creator to active user for testing impersonation
+ACTIVE_USER=$(gcloud config get-value account 2>/dev/null || true)
+if [ -n "$ACTIVE_USER" ]; then
+    echo -e "${BLUE}[INFO] Granting Service Account Token Creator role on ${SA_DEPLOYER} to ${ACTIVE_USER}...${NC}"
+    gcloud iam service-accounts add-iam-policy-binding "${DEPLOYER_EMAIL}" \
+      --member="user:${ACTIVE_USER}" \
+      --role="roles/iam.serviceAccountTokenCreator" --quiet >/dev/null
+fi
+
 # 5. Create Workload Identity Pool and Provider (Keyless Authentication)
 POOL_NAME="github-actions-pool"
 PROVIDER_NAME="github-actions-provider"

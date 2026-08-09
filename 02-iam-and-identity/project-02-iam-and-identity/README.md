@@ -164,7 +164,17 @@ gcloud iam service-accounts get-iam-policy ${SA_EMAIL}
 
 ---
 
-## 6. Project Cleanup
+## 6. Troubleshooting & Common Issues
+
+| Symptom / Error | Root Cause | Resolution |
+|---|---|---|
+| `PERMISSION_DENIED: Failed to impersonate [sa-deployer@...]` | User account lacks `roles/iam.serviceAccountTokenCreator` on target Service Account. | Grant role to user: `gcloud iam service-accounts add-iam-policy-binding "${SA_EMAIL}" --member="user:YOUR_EMAIL" --role="roles/iam.serviceAccountTokenCreator"`. |
+| `INVALID_ARGUMENT: The attribute condition must reference one of the provider's claims` | GCP OIDC API requires explicit CEL condition matching GitHub claims. | Pass `--attribute-condition="assertion.repository_owner == 'YOUR_GITHUB_USER'"` to `gcloud create-oidc`. |
+| `git pull` error: `Your local changes to the following files would be overwritten by merge` | Local script changes in Cloud Shell conflicting with remote Git updates. | Reset local script edits: `git checkout -- scripts/setup_iam_governance.sh && git pull`. |
+
+---
+
+## 7. Project Cleanup
 
 To revoke IAM bindings, delete Service Accounts, custom roles, and Workload Identity pools, run:
 
@@ -174,7 +184,7 @@ To revoke IAM bindings, delete Service Accounts, custom roles, and Workload Iden
 
 ---
 
-## 7. Summary & Next Steps
+## 8. Summary & Next Steps
 
 Congratulations! You have completed **Project 2: Zero-Trust IAM Governance & Keyless Workload Identity**. You have eliminated long-lived JSON service account keys and established keyless OIDC federation.
 
