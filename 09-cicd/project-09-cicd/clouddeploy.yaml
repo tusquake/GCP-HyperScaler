@@ -1,0 +1,29 @@
+apiVersion: deploy.cloud.google.com/v1
+kind: DeliveryPipeline
+metadata:
+  name: cicd-delivery-pipeline
+description: Progressive delivery pipeline from Staging to Production Cloud Run targets
+serialPipeline:
+  stages:
+    - targetId: target-staging
+      profiles:
+        - staging
+    - targetId: target-prod
+      profiles:
+        - prod
+---
+apiVersion: deploy.cloud.google.com/v1
+kind: Target
+metadata:
+  name: target-staging
+description: Staging Cloud Run Target
+run:
+  location: projects/PROJECT_ID/locations/us-central1
+---
+apiVersion: deploy.cloud.google.com/v1
+kind: Target
+metadata:
+  name: target-prod
+description: Production Cloud Run Target
+run:
+  location: projects/PROJECT_ID/locations/us-central1

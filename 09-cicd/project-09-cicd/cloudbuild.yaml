@@ -1,0 +1,28 @@
+steps:
+  # Step 1: Build Docker Container Image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/ar-cicd-repo/cicd-app:$SHORT_SHA'
+      - './app'
+
+  # Step 2: Push Image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/ar-cicd-repo/cicd-app:$SHORT_SHA'
+
+  # Step 3: Deploy to Cloud Run Staging
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'cicd-app-staging'
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/ar-cicd-repo/cicd-app:$SHORT_SHA'
+      - '--region=us-central1'
+      - '--allow-unauthenticated'
+
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/ar-cicd-repo/cicd-app:$SHORT_SHA'
