@@ -153,11 +153,14 @@ watch -n 5 "gcloud compute instance-groups managed list-instances mig-web-fleet 
 Simulate a CPU load spike to verify autoscaler behavior:
 
 ```bash
-# Stress CPU on instance to trigger scaling up to 2-3 replicas
-gcloud compute ssh ${VM_NAME} --zone=us-central1-a --command="sudo apt-get install -y stress && stress --cpu 2 --timeout 120" &
+# 1. Obtain active VM instance name in MIG
+VM_NAME=$(gcloud compute instance-groups managed list-instances mig-web-fleet --zone=us-central1-a --format="value(NAME)" | head -n 1)
 
-# Monitor autoscaling event log
-gcloud compute instance-groups managed list-instances mig-web-fleet --zone=us-central1-a
+# 2. Stress CPU on instance to trigger scaling up to 2-3 replicas
+gcloud compute ssh "${VM_NAME}" --zone=us-central1-a --command="sudo apt-get update && sudo apt-get install -y stress && stress --cpu 2 --timeout 120" &
+
+# 3. Monitor autoscaling event log & instance replica count
+watch -n 5 "gcloud compute instance-groups managed list-instances mig-web-fleet --zone=us-central1-a"
 ```
 
 ---
