@@ -15,8 +15,17 @@ echo -e "${BLUE}GCP GKE Autopilot Microservices Platform Deployment${NC}"
 echo -e "${BLUE}=====================================================${NC}"
 
 PROJECT_ID=$(gcloud config get-value project 2>/dev/null || true)
-if [ -z "$PROJECT_ID" ]; then
-    echo -e "${RED}[ERROR] No active project set in gcloud config.${NC}"
+if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "(unset)" ]; then
+    echo -e "${YELLOW}[INFO] gcloud project unset. Auto-detecting available projects...${NC}"
+    PROJECT_ID=$(gcloud projects list --format="value(projectId)" 2>/dev/null | head -n 1 || true)
+    if [ -n "$PROJECT_ID" ]; then
+        gcloud config set project "${PROJECT_ID}" --quiet
+        echo -e "${GREEN}[SUCCESS] Auto-selected project: ${PROJECT_ID}${NC}"
+    fi
+fi
+
+if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "(unset)" ]; then
+    echo -e "${RED}[ERROR] No active project set. Run 'gcloud config set project YOUR_PROJECT_ID' first.${NC}"
     exit 1
 fi
 echo -e "${GREEN}[INFO] Active Project: ${PROJECT_ID}${NC}"
