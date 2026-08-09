@@ -1,0 +1,10 @@
+# Organization Policy Guardrails for Enterprise IAM
+# Note: Requires Org Admin role on an Organization Node; Standalone projects log warnings if un-enforceable.
+constraint: constraints/iam.disableServiceAccountKeyCreation
+listPolicy:
+  allValues: ALLOW
+---
+constraint: constraints/iam.allowedPolicyMemberDomains
+listPolicy:
+  allowedValues:
+    - C01234567 # Example Customer Org ID

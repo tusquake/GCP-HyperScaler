@@ -1,0 +1,11 @@
+title: "Custom Security Auditor"
+description: "Least privilege read-only security auditing role for SRE and Security teams"
+stage: "GA"
+includedPermissions:
+  - resourcemanager.projects.get
+  - resourcemanager.projects.getIamPolicy
+  - iam.serviceAccounts.list
+  - iam.serviceAccounts.get
+  - logging.logEntries.list
+  - monitoring.timeSeries.list
+  - securitycenter.findings.list
