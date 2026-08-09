@@ -20,6 +20,8 @@ In this project, you will:
 
 The project provisions a container supply chain and GKE Autopilot deployment:
 
+![Project 6 Architecture Diagram](architecture.png)
+
 ```mermaid
 flowchart TD
     subgraph ContainerSupplyChain["Container Build & Registry Tier"]

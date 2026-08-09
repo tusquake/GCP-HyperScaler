@@ -20,6 +20,8 @@ In this project, you will:
 
 The project provisions a multi-tier polyglot data persistence layout:
 
+![Project 5 Architecture Diagram](architecture.png)
+
 ```mermaid
 flowchart TD
     subgraph DataIngress["Application Data Access Layer"]

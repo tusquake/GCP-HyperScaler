@@ -20,6 +20,8 @@ In this project, you will:
 
 This project is specifically engineered for **GCP Free Trial Users**, accommodating both standalone project environments and full Enterprise Organization structures:
 
+![Project 1 Architecture Diagram](architecture.png)
+
 ```mermaid
 flowchart TD
     subgraph BillingSafetyLayer["Billing & Budget Guardrails ($300 Credit)"]

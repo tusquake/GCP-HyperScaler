@@ -20,6 +20,8 @@ In this project, you will:
 
 This project operates within your existing GCP Free Trial project or a dedicated IAM security project ($0 cost):
 
+![Project 2 Architecture Diagram](architecture.png)
+
 ```mermaid
 flowchart TD
     subgraph EnterpriseIAMBoundary["Zero-Trust IAM Security Governance"]

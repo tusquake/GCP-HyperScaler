@@ -20,6 +20,8 @@ In this project, you will:
 
 The project provisions an auto-healing, autoscaling compute fleet serving web traffic behind a Load Balancer:
 
+![Project 4 Architecture Diagram](architecture.png)
+
 ```mermaid
 flowchart TD
     subgraph ExternalTraffic["User Traffic Ingress"]

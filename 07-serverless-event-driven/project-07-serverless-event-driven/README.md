@@ -20,6 +20,8 @@ In this project, you will:
 
 The project provisions an end-to-end event-driven serverless workflow:
 
+![Project 7 Architecture Diagram](architecture.png)
+
 ```mermaid
 flowchart TD
     subgraph ClientAndCronIngress["HTTP & Cron Ingress Tier"]

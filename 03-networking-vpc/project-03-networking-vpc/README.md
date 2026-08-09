@@ -20,6 +20,8 @@ In this project, you will:
 
 The project deploys a dual-region hybrid network topology with private egress and Private Service Connect:
 
+![Project 3 Architecture Diagram](architecture.png)
+
 ```mermaid
 flowchart TD
     subgraph GlobalLoadBalancing["Global Ingress Tier"]
