@@ -1,0 +1,84 @@
+{
+  "displayName": "4 Golden Signals - Production Overview",
+  "gridLayout": {
+    "columns": "2",
+    "widgets": [
+      {
+        "title": "Latency (Response Time ms)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"loadbalancing.googleapis.com/https/backend_latencies\"",
+                  "aggregation": {
+                    "perSeriesAligner": "ALIGN_DELTA",
+                    "crossSeriesReducer": "REDUCE_PERCENTILE_99",
+                    "alignmentPeriod": "60s"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Traffic (Requests per Second)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"loadbalancing.googleapis.com/https/request_count\"",
+                  "aggregation": {
+                    "perSeriesAligner": "ALIGN_RATE",
+                    "crossSeriesReducer": "REDUCE_SUM",
+                    "alignmentPeriod": "60s"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Errors (HTTP 5xx Rate %)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"loadbalancing.googleapis.com/https/request_count\" response_code_class=\"5xx\"",
+                  "aggregation": {
+                    "perSeriesAligner": "ALIGN_RATE",
+                    "crossSeriesReducer": "REDUCE_SUM",
+                    "alignmentPeriod": "60s"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Saturation (CPU Utilization %)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "metric.type=\"compute.googleapis.com/instance/cpu/utilization\"",
+                  "aggregation": {
+                    "perSeriesAligner": "ALIGN_MEAN",
+                    "crossSeriesReducer": "REDUCE_MEAN",
+                    "alignmentPeriod": "60s"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

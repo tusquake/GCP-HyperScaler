@@ -1,0 +1,22 @@
+{
+  "displayName": "High 5xx Error Rate Spike (>5%)",
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "HTTP 5xx Error Rate Breach",
+      "conditionThreshold": {
+        "filter": "resource.type = \"https_lb_rule\" AND metric.type = \"loadbalancing.googleapis.com/https/request_count\" AND response_code_class = \"5xx\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "60s",
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 5.0,
+        "duration": "60s"
+      }
+    }
+  ]
+}
