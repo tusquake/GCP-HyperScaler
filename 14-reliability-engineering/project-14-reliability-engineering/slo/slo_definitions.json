@@ -1,0 +1,10 @@
+{
+  "displayName": "99.9% Checkout API Availability (28-Day Rolling)",
+  "goal": 0.999,
+  "rollingPeriodDays": 28,
+  "serviceLevelIndicator": {
+    "basicSli": {
+      "availability": {}
+    }
+  }
+}
