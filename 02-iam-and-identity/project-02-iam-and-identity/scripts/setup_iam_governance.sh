@@ -89,7 +89,8 @@ else
       --workload-identity-pool="${POOL_NAME}" \
       --location="global" \
       --issuer-uri="https://token.actions.githubusercontent.com" \
-      --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
+      --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner" \
+      --attribute-condition="assertion.repository_owner != ''" \
       --display-name="GitHub Actions Provider" --quiet
     echo -e "${GREEN}[SUCCESS] Workload Identity Provider created.${NC}"
 fi
