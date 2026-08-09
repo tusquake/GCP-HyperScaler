@@ -85,12 +85,13 @@ echo -e "${BLUE}[INFO] Creating Workload Identity Provider: ${PROVIDER_NAME}...$
 if gcloud iam workload-identity-pools providers describe "${PROVIDER_NAME}" --workload-identity-pool="${POOL_NAME}" --location="global" >/dev/null 2>&1; then
     echo -e "${YELLOW}[INFO] Workload Identity Provider ${PROVIDER_NAME} already exists.${NC}"
 else
+    GITHUB_ORG="${1:-tusquake}"
     gcloud iam workload-identity-pools providers create-oidc "${PROVIDER_NAME}" \
       --workload-identity-pool="${POOL_NAME}" \
       --location="global" \
       --issuer-uri="https://token.actions.githubusercontent.com" \
       --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner" \
-      --attribute-condition="assertion.repository_owner != ''" \
+      --attribute-condition="assertion.repository_owner == '${GITHUB_ORG}'" \
       --display-name="GitHub Actions Provider" --quiet
     echo -e "${GREEN}[SUCCESS] Workload Identity Provider created.${NC}"
 fi
