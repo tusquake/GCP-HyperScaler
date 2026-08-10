@@ -49,19 +49,20 @@ DB_IP=$(gcloud sql instances describe "${DB_INSTANCE_NAME}" --format="value(ipAd
 echo "--> Cloud SQL Public IP: ${DB_IP}"
 echo "${DB_IP}" > /tmp/cloud_sql_ip.txt
 
-# Step 3: Create Google Cloud Storage Bucket
-echo "[3/4] Creating Cloud Storage Bucket..."
+# Step 3: Create & Configure Google Cloud Storage Bucket CORS
+echo "[3/4] Creating & Configuring Cloud Storage Bucket CORS..."
 if ! gcloud storage buckets describe "gs://${BUCKET_NAME}" --project="${PROJECT_ID}" &>/dev/null; then
     gcloud storage buckets create "gs://${BUCKET_NAME}" \
       --location="${REGION}" \
       --public-access-prevention \
       --uniform-bucket-level-access \
       --project="${PROJECT_ID}"
-
-    gcloud storage buckets update "gs://${BUCKET_NAME}" \
-      --cors-file="gcp/cors.json" \
-      --project="${PROJECT_ID}"
 fi
+
+# Always apply CORS policy to the storage bucket
+gcloud storage buckets update "gs://${BUCKET_NAME}" \
+  --cors-file="gcp/cors.json" \
+  --project="${PROJECT_ID}" || true
 
 # Step 4: Create Service Account Managed Identity & Assign IAM Roles
 echo "[4/4] Provisioning GCP Service Account and IAM Roles..."
