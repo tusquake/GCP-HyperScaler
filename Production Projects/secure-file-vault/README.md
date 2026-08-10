@@ -1,124 +1,170 @@
-# Secure Enterprise File Vault (GCP IAM & Private Subnet Architecture)
+# Secure Enterprise File Vault - System Architecture & Operations Manual
 
-A production-ready, scalable, low-latency enterprise file management system built with **React**, **Node.js**, **Google Cloud Platform (GCP)**, and **`gcloud` CLI scripts**.
-
-Designed specifically to comply with enterprise cloud security benchmarks: **zero static credentials/connection strings**, **VPC private subnet isolation**, **IAM Service Account Managed Identities**, and **direct client-to-bucket 1.5GB+ resumable uploads**.
+## 1. Executive Summary
+The Secure Enterprise File Vault is a cloud-native, scalable, low-latency enterprise document management platform built using Node.js (Express), React (Vite Single Page Application), PostgreSQL (Google Cloud SQL), and Google Cloud Storage (GCS). The application enforces enterprise security controls including zero hardcoded credentials, GCP IAM Managed Identities, role-based access control (RBAC) for storage folders, 1.5GB+ direct resumable file uploads with pause/resume capabilities, and audit logging for security compliance.
 
 ---
 
-## 🏛 Architecture & Security Design
+## 2. System Architecture
 
 ```
 +-----------------------------------------------------------------------------------+
-|                              PUBLIC ACCESS LAYER                                  |
-|  React SPA (Vite)  ---> Request Upload URL ---> Node.js API (Cloud Run)           |
-|         |                                              |                          |
-|         +------------ Stream 1.5GB+ File -------------> + (GCS Bucket)            |
-+--------------------------------------------------------|--------------------------+
-                                                         | VPC Connector Egress
-+--------------------------------------------------------v--------------------------+
-|                             CUSTOM VPC: file-vault-vpc                            |
+|                              FRONTEND & ACCESS LAYER                              |
 |                                                                                   |
-|  Subnet: Serverless VPC Connector (10.0.2.0/28)                                  |
+|  User Browser (React SPA)                                                         |
 |         |                                                                         |
-|         +---> Private Service Access Peering (10.0.1.0/24)                        |
-|                     |                                                             |
-|                     v                                                             |
-|          Cloud SQL PostgreSQL (PRIVATE IP ONLY - Public IPv4 Disabled)           |
-+-----------------------------------------------------------------------------------+
+|         +---> Single Cloud Run HTTPS Endpoint (Port 8080)                          |
+|               Express API Server + Static React Assets                             |
++---------------------------------------+-------------------------------------------+
+                                        |
+                   +--------------------+--------------------+
+                   |                                         |
+                   v                                         v
++--------------------------------------+   +----------------------------------------+
+|       DATABASE LAYER (Cloud SQL)     |   |       STORAGE LAYER (Cloud Storage)    |
+|                                      |   |                                        |
+|  Instance: secure-app-db             |   |  Bucket: ${PROJECT_ID}-secure-vault    |
+|  Engine:   PostgreSQL 15             |   |  Access: Uniform Bucket-Level Access   |
+|  Database: file_vault_db             |   |  Security: Public Access Prevention    |
+|  Connection: Direct TCP / Auth Proxy |   |  Uploads: Direct Resumable + API Stream|
++--------------------------------------+   +----------------------------------------+
 ```
 
 ---
 
-## 🔒 Key Security Highlights
+## 3. Core Feature Set & User Personas
 
-1. **Managed Identity & Zero Static Credentials**:
-   - The Node.js backend uses **Application Default Credentials (ADC)** and GCP IAM Service Account (`file-vault-backend-sa@PROJECT.iam.gserviceaccount.com`).
-   - Cloud SQL uses **IAM Database Authentication** (`roles/cloudsql.instanceUser`).
-2. **VPC Subnet Network Isolation**:
-   - **Cloud SQL Private IP Only**: Public IPv4 disabled (`--no-assign-ip`).
-   - **Private Subnet (`10.0.1.0/24`)**: Database resides in a private CIDR block peered via GCP Private Service Access.
-   - **Serverless VPC Access Connector (`10.0.2.0/28`)**: Cloud Run routes internal traffic into the VPC.
-3. **1.5GB+ Direct Uploads**:
-   - Large files stream directly to GCS via **Resumable Signed URLs**, bypassing Node.js server RAM/bandwidth limits.
+### 3.1 Administrative Persona
+- Designated Admin Auto-Promotion: The account `tushar.seth@cloudkaptan.com` is automatically assigned the ADMIN role upon registration.
+- User Management Module: Administrators can create user accounts, reset credentials, assign folder permissions, and view active users.
+- Folder Provisioning & RBAC: Provision custom corporate storage folders (e.g., /Finance, /HR, /Public) and set granular Read and Upload permissions per user.
+- Security Audit Log Center: Real-time, immutable audit trail recording all critical system actions including account registrations, folder creation, file uploads, and download link generations.
+
+### 3.2 Standard User Persona
+- Streamlined Light-Themed Workspace: Displays assigned folders and file listings without administrative configuration options.
+- Direct & Resumable File Uploads: Supports uploading large files up to 1.5GB+ with real-time speed indicators, progress tracking, and Pause/Resume controls.
+- Secure Direct Downloads: Retrieves files securely via authorized GCS URLs or backend streaming proxies.
 
 ---
 
-## 💻 `gcloud` CLI Commands Guide
+## 4. Database Schema & Data Models
 
-### 1. Enable Required GCP APIs
-```bash
-gcloud services enable \
-  compute.googleapis.com \
-  servicenetworking.googleapis.com \
-  vpcaccess.googleapis.com \
-  sqladmin.googleapis.com \
-  storage.googleapis.com \
-  run.googleapis.com \
-  iam.googleapis.com
-```
+### 4.1 Schema Definition (`file_vault_db`)
 
-### 2. Create VPC & Private Subnet
-```bash
-# Create Custom VPC Network
-gcloud compute networks create file-vault-vpc --subnet-mode=custom
+```sql
+CREATE TABLE IF NOT EXISTS users (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(32) NOT NULL DEFAULT 'USER',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
-# Create Private Subnet (10.0.1.0/24)
-gcloud compute networks subnets create file-vault-private-subnet \
-  --network=file-vault-vpc \
-  --range=10.0.1.0/24 \
-  --region=us-central1 \
-  --enable-private-ip-google-access
-```
+CREATE TABLE IF NOT EXISTS folders (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    path VARCHAR(255) UNIQUE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
-### 3. Create Serverless VPC Access Connector
-```bash
-gcloud compute networks vpc-access connectors create vault-serverless-vpc \
-  --network=file-vault-vpc \
-  --region=us-central1 \
-  --range=10.0.2.0/28
-```
+CREATE TABLE IF NOT EXISTS user_folder_permissions (
+    id SERIAL PRIMARY KEY,
+    user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+    folder_id VARCHAR(64) REFERENCES folders(id) ON DELETE CASCADE,
+    can_upload BOOLEAN DEFAULT TRUE,
+    can_read BOOLEAN DEFAULT TRUE,
+    UNIQUE(user_id, folder_id)
+);
 
-### 4. Create Cloud SQL Instance (Private IP Only)
-```bash
-gcloud sql instances create file-vault-db-instance \
-  --database-version=POSTGRES_15 \
-  --tier=db-f1-micro \
-  --region=us-central1 \
-  --network=file-vault-vpc \
-  --no-assign-ip \
-  --enable-database-flag cloudsql.iam_authentication=on
-```
+CREATE TABLE IF NOT EXISTS file_metadata (
+    id VARCHAR(64) PRIMARY KEY,
+    folder_id VARCHAR(64) REFERENCES folders(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    uploaded_by VARCHAR(64) REFERENCES users(id),
+    gcs_path VARCHAR(512) NOT NULL,
+    uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
-### 5. Create Cloud Storage Bucket
-```bash
-gcloud storage buckets create gs://YOUR_PROJECT_ID-secure-file-vault-bucket \
-  --location=us-central1 \
-  --public-access-prevention \
-  --uniform-bucket-level-access
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id VARCHAR(64) PRIMARY KEY,
+    user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+    action VARCHAR(64) NOT NULL,
+    details TEXT,
+    ip_address VARCHAR(45),
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
 ---
 
-## 🚀 One-Command GCP Deployment
+## 5. Storage Engine & Resumable Upload Architecture
 
-To provision all GCP infrastructure and deploy Cloud Run automatically using `gcloud` CLI:
+### 5.1 Direct Resumable Upload Protocol
+1. Client requests an upload session URL from `/api/files/generate-upload-url`.
+2. Backend invokes `@google-cloud/storage` `createResumableUpload` using Cloud Run IAM Managed Identity credentials.
+3. Client streams file chunks directly to `storage.googleapis.com` via `PUT` requests.
+4. On Pause, `xhr.abort()` halts the connection. On Resume, client queries GCS with `Content-Range: bytes */[totalSize]`. GCS responds with status `308 Resume Incomplete` and the last byte saved. The client slices `file.slice(offset)` and resumes streaming.
+
+### 5.2 Resilient API Stream Fallback
+If client-side CORS or browser policies block direct `PUT` requests to `storage.googleapis.com`, the frontend automatically falls back to streaming file chunks via `/api/files/upload-direct` to guarantee upload completion under all network conditions.
+
+---
+
+## 6. Challenges Encountered & Technical Solutions
+
+### 6.1 Database Socket Error (`connect ECONNREFUSED /cloudsql/...`)
+- Root Cause: Cloud Run attempted to connect to Unix socket `/cloudsql/...` without an active VPC Connector or Private IP routing.
+- Resolution: Configured direct TCP IP connectivity (`DB_HOST`) with `--assign-ip` on Cloud SQL instance `secure-app-db`, enabling reliable database connectivity in approximately 30 seconds.
+
+### 6.2 Serverless VPC Access Connector Quota Timeout (`Code 13`)
+- Root Cause: GCP trial projects hit Compute Engine internal VM quotas during connector creation.
+- Resolution: Bypassed slow VPC Connector dependencies by utilizing Cloud SQL Auth Proxy / Direct TCP IP mode and passing `--clear-vpc-connector` to `gcloud run deploy`.
+
+### 6.3 Docker Cloud Build `npm ci` Failure
+- Root Cause: `npm ci` failed in `backend/Dockerfile` because `package-lock.json` was ignored by `.gitignore`.
+- Resolution: Modified `backend/Dockerfile` to `npm install --omit=dev`, updated `.gitignore` rules, and committed `package-lock.json` to source control.
+
+### 6.4 Storage SDK Signed URL IAM Permission Error
+- Root Cause: `@google-cloud/storage` `getSignedUrl` required `signBlob` permissions on Cloud Run IAM Service Accounts.
+- Resolution: Adopted native `createResumableUpload` (which utilizes active OAuth2 tokens directly without requiring local private keys) and granted `roles/iam.serviceAccountTokenCreator`.
+
+### 6.5 GCS Browser CORS Policy Block (`ERR_FAILED 200/CORS`)
+- Root Cause: GCS bucket CORS configuration was skipped for pre-existing storage buckets inside creation conditional blocks.
+- Resolution: Updated `setup_gcp_infra.sh` to enforce `gcloud storage buckets update --cors-file=gcp/cors.json` on every run, and implemented an automatic API stream upload fallback route.
+
+---
+
+## 7. Deployment Instructions
+
+Execute the automated single-command deployment script in Google Cloud Shell:
 
 ```bash
-chmod +x deploy.sh
+git reset --hard origin/main
+git pull
+chmod +x deploy.sh setup_gcp_infra.sh
 ./deploy.sh
 ```
 
 ---
 
-## ⚡ Local Development
+## 8. System Design & Enterprise Architectural Improvements
 
-```bash
-# Terminal 1 - Backend
-cd backend && npm run dev
+To scale this application for large-scale enterprise production workloads, the following system design enhancements are recommended:
 
-# Terminal 2 - Frontend
-cd frontend && npm run dev
-```
+### 8.1 Asynchronous Malware & Antivirus Scanning (Pub/Sub + Cloud Functions)
+- Configure GCS Bucket Event Notifications to publish object creation events to a Cloud Pub/Sub topic.
+- Deploy a serverless Cloud Function running ClamAV to inspect uploaded objects asynchronously before marking them as verified in `file_metadata`.
 
-Open **`http://127.0.0.1:3005`** in your browser.
+### 8.2 Global Edge Caching (Cloud CDN + Signed URLs)
+- Place Google Cloud CDN in front of Cloud Storage buckets to cache static assets and frequently downloaded documents at edge locations globally, reducing latency and egress costs.
+
+### 8.3 Connection Pooling (PgBouncer Sidecar)
+- Deploy PgBouncer in front of Cloud SQL PostgreSQL to manage database connection pools efficiently, supporting thousands of concurrent user sessions without exhausting backend database limits.
+
+### 8.4 Storage Lifecycle Policies
+- Configure GCS Lifecycle Rules to transition files older than 90 days from Standard Storage to Nearline or Coldline Storage classes, optimizing long-term storage expenditure.
+
+### 8.5 Multi-Region High Availability & Disaster Recovery
+- Enable Cloud SQL High Availability (HA) with regional standby replicas and configure multi-region GCS buckets (e.g., `US` or `EU`) to guarantee 99.999999999% (11 9s) data durability.
