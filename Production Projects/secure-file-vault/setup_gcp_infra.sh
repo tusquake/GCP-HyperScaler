@@ -29,6 +29,7 @@ gcloud services enable \
   storage.googleapis.com \
   run.googleapis.com \
   iam.googleapis.com \
+  iamcredentials.googleapis.com \
   --project="${PROJECT_ID}"
 
 # Step 2: Configure Cloud SQL Instance Networking & Database
@@ -79,6 +80,10 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/cloudsql.instanceUser" || true
+
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/iam.serviceAccountTokenCreator" || true
 
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET_NAME}" \
   --member="serviceAccount:${SA_EMAIL}" \

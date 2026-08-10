@@ -1,5 +1,5 @@
 import express from 'express';
-import { generateResumableUploadUrl, generateDownloadUrl, BUCKET_NAME } from '../config/gcp.js';
+import { generateResumableUploadUrl, generateDownloadUrl, storage, BUCKET_NAME } from '../config/gcp.js';
 import { query } from '../db/connection.js';
 import { authenticateToken } from '../middleware/auth.js';
 
@@ -29,11 +29,11 @@ router.get('/my-folders', async (req, res) => {
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching accessible folders:', error);
-    res.status(500).json({ error: 'Database error fetching accessible folders' });
+    res.status(500).json({ error: error.message || 'Database error fetching accessible folders' });
   }
 });
 
-// Generate GCS Signed Resumable Upload URL (Handles 1.5GB+ direct uploads)
+// Generate GCS Resumable Upload URL (Handles 1.5GB+ direct uploads)
 router.post('/generate-upload-url', async (req, res) => {
   try {
     const { folder_id, file_name, file_size_bytes, content_type } = req.body;
@@ -86,7 +86,7 @@ router.post('/generate-upload-url', async (req, res) => {
 
   } catch (error) {
     console.error('Error generating signed upload URL:', error);
-    res.status(500).json({ error: 'Failed to generate GCS signed upload URL' });
+    res.status(500).json({ error: error.message || 'Failed to generate GCS signed upload URL' });
   }
 });
 
@@ -121,7 +121,7 @@ router.post('/confirm-upload', async (req, res) => {
 
   } catch (error) {
     console.error('Error confirming upload:', error);
-    res.status(500).json({ error: 'Failed to record file metadata' });
+    res.status(500).json({ error: error.message || 'Failed to record file metadata' });
   }
 });
 
@@ -149,7 +149,7 @@ router.get('/folder/:folderId', async (req, res) => {
 
     res.json(filesRes.rows);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to list folder files' });
+    res.status(500).json({ error: error.message || 'Failed to list folder files' });
   }
 });
 
@@ -176,7 +176,13 @@ router.get('/download-url/:fileId', async (req, res) => {
       }
     }
 
-    const downloadUrl = await generateDownloadUrl(file.gcs_path);
+    let downloadUrl;
+    try {
+      downloadUrl = await generateDownloadUrl(file.gcs_path);
+    } catch (urlErr) {
+      // Fallback stream URL
+      downloadUrl = `/api/files/download-stream/${file.id}`;
+    }
 
     await query(
       'INSERT INTO audit_logs (id, user_id, action, details, ip_address) VALUES ($1, $2, $3, $4, $5)',
@@ -187,7 +193,25 @@ router.get('/download-url/:fileId', async (req, res) => {
 
   } catch (error) {
     console.error('Error generating download link:', error);
-    res.status(500).json({ error: 'Failed to generate signed download link' });
+    res.status(500).json({ error: error.message || 'Failed to generate signed download link' });
+  }
+});
+
+// Stream download fallback directly from GCS bucket
+router.get('/download-stream/:fileId', async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const fileRes = await query('SELECT * FROM file_metadata WHERE id = $1', [fileId]);
+    if (fileRes.rows.length === 0) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    const file = fileRes.rows[0];
+    const gcsFile = storage.bucket(BUCKET_NAME).file(file.gcs_path);
+
+    res.setHeader('Content-Disposition', `attachment; filename="${file.name}"`);
+    gcsFile.createReadStream().pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to stream file download' });
   }
 });
 

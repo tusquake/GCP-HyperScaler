@@ -7,23 +7,37 @@ export const storage = new Storage({
 export const BUCKET_NAME = process.env.GCS_BUCKET_NAME || 'secure-file-vault-bucket';
 
 /**
- * Generate a GCP Signed Resumable Upload URL for direct client streaming (up to 1.5GB+)
+ * Generate a GCP Resumable Upload URL for direct client streaming (up to 1.5GB+)
+ * Uses native GCS createResumableUpload for seamless Cloud Run IAM Managed Identity support.
  */
 export async function generateResumableUploadUrl(objectPath, contentType) {
   try {
     const file = storage.bucket(BUCKET_NAME).file(objectPath);
     
-    const [url] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'resumable',
-      expires: Date.now() + 15 * 60 * 1000, // 15 mins
-      contentType: contentType || 'application/octet-stream',
+    // Native GCS resumable upload creation (Works directly with IAM Service Accounts without signBlob)
+    const [url] = await file.createResumableUpload({
+      metadata: {
+        contentType: contentType || 'application/octet-stream'
+      },
+      origin: '*'
     });
 
     return url;
   } catch (error) {
-    console.error('[GCP Storage Error] Failed to generate signed upload URL:', error);
-    throw error;
+    console.warn('[GCP Storage Warning] createResumableUpload failed, attempting getSignedUrl fallback:', error.message);
+    try {
+      const file = storage.bucket(BUCKET_NAME).file(objectPath);
+      const [url] = await file.getSignedUrl({
+        version: 'v4',
+        action: 'resumable',
+        expires: Date.now() + 15 * 60 * 1000,
+        contentType: contentType || 'application/octet-stream',
+      });
+      return url;
+    } catch (fallbackError) {
+      console.error('[GCP Storage Error] Signed upload URL generation failed:', fallbackError);
+      throw error;
+    }
   }
 }
 
