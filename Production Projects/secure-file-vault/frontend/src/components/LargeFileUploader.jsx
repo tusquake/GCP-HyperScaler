@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { UploadCloud, File, CheckCircle, AlertCircle, ArrowUpRight, Pause, Play, RotateCcw } from 'lucide-react';
+import { UploadCloud, File, CheckCircle, AlertCircle, ArrowUpRight, Pause, Play } from 'lucide-react';
 import api from '../api/client';
 
 export default function LargeFileUploader({ folder, onUploadSuccess }) {
@@ -57,8 +57,8 @@ export default function LargeFileUploader({ folder, onUploadSuccess }) {
       performUploadXHR(uploadUrl, objectPath, selectedFile, 0);
 
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to initialize GCS upload session');
-      setUploading(false);
+      // Fallback to API direct stream upload if signed URL generation fails
+      fallbackApiUpload(selectedFile);
     }
   };
 
@@ -92,7 +92,6 @@ export default function LargeFileUploader({ folder, onUploadSuccess }) {
     xhr.onload = async () => {
       if (xhr.status === 200 || xhr.status === 201 || xhr.status === 308) {
         if (xhr.status === 308) {
-          // Incomplete response - resume offset
           const rangeHeader = xhr.getResponseHeader('Range');
           if (rangeHeader) {
             const match = rangeHeader.match(/bytes=0-(\d+)/);
@@ -119,17 +118,72 @@ export default function LargeFileUploader({ folder, onUploadSuccess }) {
         uploadSessionRef.current = { uploadUrl: '', objectPath: '', loadedOffset: 0 };
         if (onUploadSuccess) onUploadSuccess();
       } else {
-        setError(`Upload server returned status ${xhr.status}`);
-        setUploading(false);
+        // Fallback to direct API upload stream if GCS direct PUT fails
+        fallbackApiUpload(file);
       }
     };
 
     xhr.onerror = () => {
-      setError('Upload interrupted or connection lost');
-      setUploading(false);
+      // Fallback to direct API upload stream if CORS policy blocks browser PUT
+      fallbackApiUpload(file);
     };
 
     xhr.send(fileChunk);
+  };
+
+  const fallbackApiUpload = async (file) => {
+    try {
+      startTimeRef.current = Date.now();
+      const token = localStorage.getItem('vault_auth_token');
+
+      const xhr = new XMLHttpRequest();
+      xhrRef.current = xhr;
+
+      xhr.open('POST', `${api.defaults.baseURL}/files/upload-direct`, true);
+      if (token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      }
+      xhr.setRequestHeader('x-folder-id', folder.id);
+      xhr.setRequestHeader('x-file-name', encodeURIComponent(file.name));
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.min(99, Math.round((e.loaded / e.total) * 100));
+          setProgress(pct);
+          const elapsedSec = (Date.now() - startTimeRef.current) / 1000;
+          if (elapsedSec > 0) {
+            setSpeed(((e.loaded / (1024 * 1024)) / elapsedSec).toFixed(1));
+          }
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status === 200 || xhr.status === 201) {
+          setProgress(100);
+          setUploading(false);
+          setIsPaused(false);
+          setSuccess(true);
+          setSelectedFile(null);
+          uploadSessionRef.current = { uploadUrl: '', objectPath: '', loadedOffset: 0 };
+          if (onUploadSuccess) onUploadSuccess();
+        } else {
+          setError('Failed to upload file');
+          setUploading(false);
+        }
+      };
+
+      xhr.onerror = () => {
+        setError('Upload failed due to connection error');
+        setUploading(false);
+      };
+
+      xhr.send(file);
+
+    } catch (err) {
+      setError('Upload failed');
+      setUploading(false);
+    }
   };
 
   const handlePause = () => {
@@ -141,13 +195,15 @@ export default function LargeFileUploader({ folder, onUploadSuccess }) {
   };
 
   const handleResume = () => {
-    if (!uploadSessionRef.current.uploadUrl || !selectedFile) return;
+    if (!uploadSessionRef.current.uploadUrl || !selectedFile) {
+      if (selectedFile) startUpload();
+      return;
+    }
 
     setUploading(true);
     setIsPaused(false);
     setError('');
 
-    // Query GCS for current uploaded range status
     const xhr = new XMLHttpRequest();
     const { uploadUrl, objectPath } = uploadSessionRef.current;
 
@@ -170,7 +226,6 @@ export default function LargeFileUploader({ folder, onUploadSuccess }) {
     };
 
     xhr.onerror = () => {
-      // Direct resume attempt with saved offset
       const offset = uploadSessionRef.current.loadedOffset || 0;
       startTimeRef.current = Date.now();
       performUploadXHR(uploadUrl, objectPath, selectedFile, offset);
@@ -296,7 +351,7 @@ export default function LargeFileUploader({ folder, onUploadSuccess }) {
 
       {success && (
         <div style={{ background: 'var(--success-light)', border: '1px solid #bbf7d0', color: 'var(--success)', padding: '0.5rem 0.75rem', borderRadius: '6px', marginTop: '0.5rem', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          <CheckCircle size={14} /> <span>File uploaded successfully to GCS via Signed Resumable Upload.</span>
+          <CheckCircle size={14} /> <span>File uploaded successfully to GCS.</span>
         </div>
       )}
     </div>

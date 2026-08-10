@@ -8,18 +8,16 @@ export const BUCKET_NAME = process.env.GCS_BUCKET_NAME || 'secure-file-vault-buc
 
 /**
  * Generate a GCP Resumable Upload URL for direct client streaming (up to 1.5GB+)
- * Uses native GCS createResumableUpload for seamless Cloud Run IAM Managed Identity support.
  */
-export async function generateResumableUploadUrl(objectPath, contentType) {
+export async function generateResumableUploadUrl(objectPath, contentType, originHeader) {
   try {
     const file = storage.bucket(BUCKET_NAME).file(objectPath);
     
-    // Native GCS resumable upload creation (Works directly with IAM Service Accounts without signBlob)
     const [url] = await file.createResumableUpload({
       metadata: {
         contentType: contentType || 'application/octet-stream'
       },
-      origin: '*'
+      origin: originHeader || '*'
     });
 
     return url;

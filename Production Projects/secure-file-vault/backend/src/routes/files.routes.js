@@ -65,7 +65,7 @@ router.post('/generate-upload-url', async (req, res) => {
     const safeFileName = file_name.replace(/[^a-zA-Z0-9._-]/g, '_');
     const objectPath = `${targetFolder.path}/${Date.now()}_${safeFileName}`;
 
-    const uploadUrl = await generateResumableUploadUrl(objectPath, content_type);
+    const uploadUrl = await generateResumableUploadUrl(objectPath, content_type, req.headers.origin);
 
     await query(
       'INSERT INTO audit_logs (id, user_id, action, details, ip_address) VALUES ($1, $2, $3, $4, $5)',
@@ -87,6 +87,85 @@ router.post('/generate-upload-url', async (req, res) => {
   } catch (error) {
     console.error('Error generating signed upload URL:', error);
     res.status(500).json({ error: error.message || 'Failed to generate GCS signed upload URL' });
+  }
+});
+
+// Direct API stream upload fallback (Bypasses browser GCS CORS policy if needed)
+router.post('/upload-direct', async (req, res) => {
+  try {
+    const folderId = req.headers['x-folder-id'];
+    const rawFileName = req.headers['x-file-name'] || 'file.bin';
+    const fileName = decodeURIComponent(rawFileName);
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    if (!folderId) {
+      return res.status(400).json({ error: 'x-folder-id header is required' });
+    }
+
+    const folderRes = await query('SELECT * FROM folders WHERE id = $1', [folderId]);
+    if (folderRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Target folder not found' });
+    }
+    const targetFolder = folderRes.rows[0];
+
+    if (userRole !== 'ADMIN') {
+      const permRes = await query(
+        'SELECT id FROM user_folder_permissions WHERE user_id = $1 AND folder_id = $2 AND can_upload = TRUE',
+        [userId, folderId]
+      );
+      if (permRes.rows.length === 0) {
+        return res.status(403).json({ error: 'Access denied to upload into this folder' });
+      }
+    }
+
+    const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const objectPath = `${targetFolder.path}/${Date.now()}_${safeFileName}`;
+    const gcsFile = storage.bucket(BUCKET_NAME).file(objectPath);
+
+    let bytesCount = 0;
+    const writeStream = gcsFile.createWriteStream({
+      resumable: false,
+      contentType: req.headers['content-type'] || 'application/octet-stream'
+    });
+
+    req.on('data', (chunk) => {
+      bytesCount += chunk.length;
+    });
+
+    req.pipe(writeStream);
+
+    writeStream.on('error', (err) => {
+      console.error('[Direct Upload Stream Error]', err);
+      res.status(500).json({ error: 'Failed to stream file to GCS' });
+    });
+
+    writeStream.on('finish', async () => {
+      const fileId = `file_${Date.now()}`;
+      await query(
+        'INSERT INTO file_metadata (id, folder_id, name, size_bytes, uploaded_by, gcs_path) VALUES ($1, $2, $3, $4, $5, $6)',
+        [fileId, folderId, fileName, bytesCount || 1024, userId, objectPath]
+      );
+
+      await query(
+        'INSERT INTO audit_logs (id, user_id, action, details, ip_address) VALUES ($1, $2, $3, $4, $5)',
+        [`log_${Date.now()}`, userId, 'FILE_UPLOAD_COMPLETED', `Uploaded ${fileName} to GCS via API Stream`, req.ip || '10.0.1.2']
+      );
+
+      res.status(201).json({
+        id: fileId,
+        folder_id: folderId,
+        name: fileName,
+        size_bytes: bytesCount,
+        uploaded_by: userId,
+        gcs_path: objectPath,
+        uploaded_at: new Date().toISOString()
+      });
+    });
+
+  } catch (err) {
+    console.error('Error in direct stream upload:', err);
+    res.status(500).json({ error: err.message || 'Direct upload failed' });
   }
 });
 
