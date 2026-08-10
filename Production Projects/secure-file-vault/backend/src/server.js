@@ -3,6 +3,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import { initDb } from './db/connection.js';
 import authRoutes from './routes/auth.routes.js';
@@ -11,11 +13,18 @@ import filesRoutes from './routes/files.routes.js';
 
 dotenv.config();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const publicPath = path.join(__dirname, '../public');
+
 const app = express();
 const PORT = process.env.PORT || 8080;
 
 // Security Middlewares
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false // Allows inline scripts & Google Fonts in SPA
+}));
+
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -23,6 +32,9 @@ app.use(cors({
 }));
 
 app.use(express.json());
+
+// Serve static React SPA bundle
+app.use(express.static(publicPath));
 
 // Rate Limiter
 const limiter = rateLimit({
@@ -32,7 +44,7 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// Routes
+// API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/files', filesRoutes);
@@ -51,8 +63,13 @@ app.get('/health', (req, res) => {
   });
 });
 
-app.get('/', (req, res) => {
-  res.send('Secure Enterprise File Vault API (Cloud SQL & GCS Enabled)');
+// Single Page Application (SPA) catch-all fallback
+app.get('*', (req, res) => {
+  res.sendFile(path.join(publicPath, 'index.html'), (err) => {
+    if (err) {
+      res.send('Secure Enterprise File Vault API (Cloud SQL & GCS Enabled)');
+    }
+  });
 });
 
 // Global Error Handler
@@ -65,6 +82,5 @@ app.listen(PORT, async () => {
   console.log(`=======================================================`);
   console.log(` Secure Enterprise File Vault Backend Running on ${PORT} `);
   console.log(`=======================================================`);
-  // Initialize Cloud SQL PostgreSQL DDL schema automatically
   await initDb();
 });

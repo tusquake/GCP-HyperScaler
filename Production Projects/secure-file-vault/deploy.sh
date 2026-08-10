@@ -2,7 +2,7 @@
 set -e
 
 echo "===================================================================="
-echo " Deploying Secure Enterprise File Vault (Fast Mode)                 "
+echo " Deploying Secure Enterprise File Vault (Single Cloud Run URL)       "
 echo " Cloud SQL Private IP Socket | GCS Signed URLs | IAM Auth           "
 echo "===================================================================="
 
@@ -29,12 +29,23 @@ echo "[1/4] Provisioning Infrastructure via gcloud CLI..."
 chmod +x ./setup_gcp_infra.sh
 ./setup_gcp_infra.sh
 
-# 2. Build Backend Container via Cloud Build
-echo "[2/4] Containerizing Backend with Google Cloud Build..."
+# 2. Build React SPA Frontend & Copy into Backend public/ folder
+echo "[2/4] Building React SPA Frontend & Packaging with Backend..."
+cd frontend
+npm install
+npm run build
+cd ..
+
+rm -rf backend/public
+mkdir -p backend/public
+cp -r frontend/dist/* backend/public/
+
+# 3. Containerize Backend & Frontend into single Cloud Run container image
+echo "[3/4] Containerizing Application with Google Cloud Build..."
 gcloud builds submit --tag "gcr.io/${PROJECT_ID}/secure-file-vault-backend:latest" ./backend
 
-# 3. Deploy Backend to Cloud Run with Direct Cloud SQL Proxy Unix Socket Attachment & Clear Previous VPC Connector
-echo "[3/4] Deploying Backend Container to Cloud Run..."
+# 4. Deploy Full-Stack Container to Cloud Run
+echo "[4/4] Deploying Full-Stack Application to Cloud Run..."
 gcloud run deploy secure-file-vault-backend \
   --image "gcr.io/${PROJECT_ID}/secure-file-vault-backend:latest" \
   --region "${REGION}" \
@@ -48,16 +59,9 @@ gcloud run deploy secure-file-vault-backend \
 
 CLOUD_RUN_URL=$(gcloud run services describe secure-file-vault-backend --region="${REGION}" --format="value(status.url)" --project="${PROJECT_ID}")
 
-# 4. Build Frontend for Production
-echo "[4/4] Building React SPA Frontend..."
-cd frontend
-npm install
-VITE_API_URL="${CLOUD_RUN_URL}" npm run build
-cd ..
-
 echo "===================================================================="
-echo " Deployment Successfully Completed!                                 "
-echo " Live Cloud Run Backend URL: ${CLOUD_RUN_URL}                        "
-echo " Cloud Storage Bucket:       gs://${BUCKET_NAME}                    "
-echo " Cloud SQL Instance:         ${DB_INSTANCE_NAME}                    "
+echo " Full-Stack Application Successfully Deployed!                      "
+echo " Live Application URL: ${CLOUD_RUN_URL}                             "
+echo " Cloud Storage Bucket: gs://${BUCKET_NAME}                          "
+echo " Cloud SQL Instance:   ${DB_INSTANCE_NAME}                          "
 echo "===================================================================="
