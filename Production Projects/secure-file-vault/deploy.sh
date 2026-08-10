@@ -3,7 +3,7 @@ set -e
 
 echo "===================================================================="
 echo " Deploying Secure Enterprise File Vault (Single Cloud Run URL)       "
-echo " Cloud SQL Private IP Socket | GCS Signed URLs | IAM Auth           "
+echo " Cloud SQL Direct TCP | GCS Signed URLs | IAM Auth                  "
 echo "===================================================================="
 
 if ! command -v gcloud &> /dev/null; then
@@ -29,6 +29,9 @@ echo "[1/4] Provisioning Infrastructure via gcloud CLI..."
 chmod +x ./setup_gcp_infra.sh
 ./setup_gcp_infra.sh
 
+DB_HOST=$(cat /tmp/cloud_sql_ip.txt || echo "")
+echo "--> Cloud SQL Host IP: ${DB_HOST}"
+
 # 2. Build React SPA Frontend & Copy into Backend public/ folder
 echo "[2/4] Building React SPA Frontend & Packaging with Backend..."
 cd frontend
@@ -44,7 +47,7 @@ cp -r frontend/dist/* backend/public/
 echo "[3/4] Containerizing Application with Google Cloud Build..."
 gcloud builds submit --tag "gcr.io/${PROJECT_ID}/secure-file-vault-backend:latest" ./backend
 
-# 4. Deploy Full-Stack Container to Cloud Run
+# 4. Deploy Full-Stack Container to Cloud Run with Direct TCP Cloud SQL connection
 echo "[4/4] Deploying Full-Stack Application to Cloud Run..."
 gcloud run deploy secure-file-vault-backend \
   --image "gcr.io/${PROJECT_ID}/secure-file-vault-backend:latest" \
@@ -52,8 +55,7 @@ gcloud run deploy secure-file-vault-backend \
   --platform managed \
   --service-account "${SA_EMAIL}" \
   --clear-vpc-connector \
-  --add-cloudsql-instances "${PROJECT_ID}:${REGION}:${DB_INSTANCE_NAME}" \
-  --set-env-vars "GCP_PROJECT_ID=${PROJECT_ID},GCS_BUCKET_NAME=${BUCKET_NAME},CLOUD_SQL_CONNECTION_NAME=${PROJECT_ID}:${REGION}:${DB_INSTANCE_NAME},DB_NAME=${DB_NAME},DB_USER=${DB_USER},DB_PASSWORD=${DB_PASSWORD}" \
+  --set-env-vars "GCP_PROJECT_ID=${PROJECT_ID},GCS_BUCKET_NAME=${BUCKET_NAME},DB_HOST=${DB_HOST},DB_NAME=${DB_NAME},DB_USER=${DB_USER},DB_PASSWORD=${DB_PASSWORD}" \
   --allow-unauthenticated \
   --project "${PROJECT_ID}"
 
@@ -63,5 +65,5 @@ echo "===================================================================="
 echo " Full-Stack Application Successfully Deployed!                      "
 echo " Live Application URL: ${CLOUD_RUN_URL}                             "
 echo " Cloud Storage Bucket: gs://${BUCKET_NAME}                          "
-echo " Cloud SQL Instance:   ${DB_INSTANCE_NAME}                          "
+echo " Cloud SQL Instance:   ${DB_INSTANCE_NAME} (${DB_HOST})              "
 echo "===================================================================="

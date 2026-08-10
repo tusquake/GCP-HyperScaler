@@ -2,7 +2,7 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
-const isCloudSql = process.env.CLOUD_SQL_CONNECTION_NAME || process.env.DB_HOST;
+const isCloudSql = process.env.DB_HOST || process.env.CLOUD_SQL_CONNECTION_NAME;
 
 const dbUser = process.env.DB_USER || 'postgres';
 const dbPassword = process.env.DB_PASSWORD || 'SecurePassword123!';
@@ -10,10 +10,10 @@ const dbName = process.env.DB_NAME || 'file_vault_db';
 const dbPort = parseInt(process.env.DB_PORT || '5432');
 
 let hostPath = 'localhost';
-if (process.env.CLOUD_SQL_CONNECTION_NAME) {
-  hostPath = `/cloudsql/${process.env.CLOUD_SQL_CONNECTION_NAME}`;
-} else if (process.env.DB_HOST) {
+if (process.env.DB_HOST) {
   hostPath = process.env.DB_HOST;
+} else if (process.env.CLOUD_SQL_CONNECTION_NAME) {
+  hostPath = `/cloudsql/${process.env.CLOUD_SQL_CONNECTION_NAME}`;
 }
 
 const poolConfig = {
@@ -58,7 +58,6 @@ export async function query(text, params = []) {
       return res;
     } catch (err) {
       console.error('[Cloud SQL Query Error]:', err.message);
-      // Auto-migrate schema if tables do not exist yet (code 42P01 = undefined_table)
       if (err.code === '42P01' || (err.message && err.message.includes('does not exist'))) {
         console.log('[Cloud SQL Query] Auto-creating missing tables...');
         try {
@@ -83,7 +82,7 @@ export async function initDb() {
   if (!isCloudSql) return;
 
   try {
-    console.log(`[Database Init] Connecting to Cloud SQL PostgreSQL database (${dbName})...`);
+    console.log(`[Database Init] Connecting to Cloud SQL PostgreSQL database (${dbName} at ${hostPath})...`);
     await runMigrations();
   } catch (err) {
     if (err.code === '3D000' || (err.message && err.message.includes('database') && err.message.includes('does not exist'))) {

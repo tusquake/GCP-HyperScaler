@@ -6,7 +6,7 @@ set -e
 # ==============================================================================
 
 echo "===================================================================="
-echo " Provisioning GCP Infrastructure (Fast Deployment Mode)             "
+echo " Provisioning GCP Infrastructure (Fast Direct TCP Mode)            "
 echo "===================================================================="
 
 # Set Variables
@@ -31,13 +31,22 @@ gcloud services enable \
   iam.googleapis.com \
   --project="${PROJECT_ID}"
 
-# Step 2: Configure Database on Existing Cloud SQL Instance (secure-app-db)
-echo "[2/4] Verifying Existing Cloud SQL Instance (${DB_INSTANCE_NAME}) and Creating Database..."
+# Step 2: Configure Cloud SQL Instance Networking & Database
+echo "[2/4] Configuring Cloud SQL Instance (${DB_INSTANCE_NAME}) for Direct TCP Access..."
+gcloud sql instances patch "${DB_INSTANCE_NAME}" \
+  --assign-ip \
+  --authorized-networks="0.0.0.0/0" \
+  --project="${PROJECT_ID}" || true
+
 if ! gcloud sql databases describe "${DB_NAME}" --instance="${DB_INSTANCE_NAME}" --project="${PROJECT_ID}" &>/dev/null; then
     gcloud sql databases create "${DB_NAME}" \
       --instance="${DB_INSTANCE_NAME}" \
       --project="${PROJECT_ID}"
 fi
+
+DB_IP=$(gcloud sql instances describe "${DB_INSTANCE_NAME}" --format="value(ipAddresses[0].ipAddress)" --project="${PROJECT_ID}")
+echo "--> Cloud SQL Public IP: ${DB_IP}"
+echo "${DB_IP}" > /tmp/cloud_sql_ip.txt
 
 # Step 3: Create Google Cloud Storage Bucket
 echo "[3/4] Creating Cloud Storage Bucket..."
@@ -76,5 +85,5 @@ gcloud storage buckets add-iam-policy-binding "gs://${BUCKET_NAME}" \
   --role="roles/storage.objectAdmin" || true
 
 echo "===================================================================="
-echo " Infrastructure Setup Complete! Ready for Instant Deployment.       "
+echo " Infrastructure Setup Complete!                                     "
 echo "===================================================================="
