@@ -17,10 +17,14 @@ REGION=${GCP_REGION:-"us-central1"}
 CONNECTOR_NAME="vault-serverless-vpc"
 SA_EMAIL="file-vault-backend-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 BUCKET_NAME="${PROJECT_ID}-secure-file-vault-bucket"
-DB_INSTANCE_NAME="file-vault-db-instance"
+DB_INSTANCE_NAME="secure-app-db"
+DB_NAME="file_vault_db"
+DB_USER="postgres"
+DB_PASSWORD="SecurePassword123!"
 
 echo "--> Target GCP Project ID: ${PROJECT_ID}"
 echo "--> Target GCP Region:     ${REGION}"
+echo "--> Cloud SQL Instance:    ${DB_INSTANCE_NAME}"
 
 # 1. Run pure gcloud infrastructure setup
 echo "[1/4] Provisioning Infrastructure via gcloud CLI..."
@@ -40,7 +44,7 @@ gcloud run deploy secure-file-vault-backend \
   --service-account "${SA_EMAIL}" \
   --vpc-connector "${CONNECTOR_NAME}" \
   --vpc-egress all-traffic \
-  --set-env-vars "GCP_PROJECT_ID=${PROJECT_ID},GCS_BUCKET_NAME=${BUCKET_NAME},CLOUD_SQL_CONNECTION_NAME=${PROJECT_ID}:${REGION}:${DB_INSTANCE_NAME}" \
+  --set-env-vars "GCP_PROJECT_ID=${PROJECT_ID},GCS_BUCKET_NAME=${BUCKET_NAME},CLOUD_SQL_CONNECTION_NAME=${PROJECT_ID}:${REGION}:${DB_INSTANCE_NAME},DB_NAME=${DB_NAME},DB_USER=${DB_USER},DB_PASSWORD=${DB_PASSWORD}" \
   --allow-unauthenticated \
   --project "${PROJECT_ID}"
 
@@ -57,4 +61,5 @@ echo "===================================================================="
 echo " Deployment Successfully Completed via gcloud CLI!                 "
 echo " Cloud Run Backend URL: ${CLOUD_RUN_URL}                           "
 echo " Cloud Storage Bucket:  gs://${BUCKET_NAME}                         "
+echo " Cloud SQL Instance:    ${DB_INSTANCE_NAME}                         "
 echo "===================================================================="

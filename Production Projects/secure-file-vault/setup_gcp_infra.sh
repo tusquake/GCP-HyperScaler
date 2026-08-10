@@ -3,14 +3,6 @@ set -e
 
 # ==============================================================================
 # GCP Pure gcloud CLI Infrastructure Provisioner
-# 
-# Provisions:
-# 1. GCP APIs
-# 2. Custom VPC Network & Private Subnet (10.0.1.0/24)
-# 3. Private Service Access Peering & Serverless VPC Connector (10.0.2.0/28)
-# 4. Cloud SQL PostgreSQL Instance with Private IP Only (No Public IP)
-# 5. Google Cloud Storage Bucket (Public Access Prevention Enforced & CORS)
-# 6. Service Account Managed Identity & Least-Privilege IAM Roles
 # ==============================================================================
 
 echo "===================================================================="
@@ -23,7 +15,7 @@ REGION=${GCP_REGION:-"us-central1"}
 VPC_NAME="file-vault-vpc"
 SUBNET_NAME="file-vault-private-subnet"
 CONNECTOR_NAME="vault-serverless-vpc"
-DB_INSTANCE_NAME="file-vault-db-instance"
+DB_INSTANCE_NAME="secure-app-db"
 DB_NAME="file_vault_db"
 SA_NAME="file-vault-backend-sa"
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -31,6 +23,7 @@ BUCKET_NAME="${PROJECT_ID}-secure-file-vault-bucket"
 
 echo "--> Target Project: ${PROJECT_ID}"
 echo "--> Target Region:  ${REGION}"
+echo "--> Using Cloud SQL Instance: ${DB_INSTANCE_NAME}"
 
 # Step 1: Enable Required GCP APIs
 echo "[1/7] Enabling GCP Service APIs..."
@@ -72,7 +65,6 @@ if ! gcloud compute addresses describe "google-managed-services-${VPC_NAME}" --g
       --project="${PROJECT_ID}"
 fi
 
-# Corrected gcloud CLI syntax: vpc-peerings
 gcloud services vpc-peerings connect \
   --service=servicenetworking.googleapis.com \
   --ranges="google-managed-services-${VPC_NAME}" \
@@ -89,9 +81,10 @@ if ! gcloud compute networks vpc-access connectors describe "${CONNECTOR_NAME}" 
       --project="${PROJECT_ID}"
 fi
 
-# Step 4: Create Cloud SQL PostgreSQL (Private IP Only - No Public IP)
-echo "[4/7] Creating Cloud SQL Instance with Private IP Only..."
+# Step 4: Configure Database on Existing Cloud SQL Instance (secure-app-db)
+echo "[4/7] Verifying Existing Cloud SQL Instance (${DB_INSTANCE_NAME}) and Creating Database..."
 if ! gcloud sql instances describe "${DB_INSTANCE_NAME}" --project="${PROJECT_ID}" &>/dev/null; then
+    echo "Cloud SQL instance ${DB_INSTANCE_NAME} not found. Creating..."
     gcloud sql instances create "${DB_INSTANCE_NAME}" \
       --database-version=POSTGRES_15 \
       --tier=db-f1-micro \
@@ -108,7 +101,7 @@ if ! gcloud sql databases describe "${DB_NAME}" --instance="${DB_INSTANCE_NAME}"
       --project="${PROJECT_ID}"
 fi
 
-# Step 5: Create Google Cloud Storage Bucket with CORS & Public Access Prevention Enforced
+# Step 5: Create Google Cloud Storage Bucket
 echo "[5/7] Creating Cloud Storage Bucket..."
 if ! gcloud storage buckets describe "gs://${BUCKET_NAME}" --project="${PROJECT_ID}" &>/dev/null; then
     gcloud storage buckets create "gs://${BUCKET_NAME}" \
@@ -145,8 +138,8 @@ gcloud storage buckets add-iam-policy-binding "gs://${BUCKET_NAME}" \
   --role="roles/storage.objectAdmin"
 
 echo "===================================================================="
-echo " Infrastructure Provisioning Complete via gcloud CLI!               "
-echo " Cloud SQL Instance:  ${DB_INSTANCE_NAME} (Private IP Only)"
+echo " Infrastructure Setup Complete!                                     "
+echo " Cloud SQL Instance:  ${DB_INSTANCE_NAME}"
 echo " Storage Bucket:      gs://${BUCKET_NAME}"
 echo " Service Account:     ${SA_EMAIL}"
 echo " VPC Connector:       ${CONNECTOR_NAME}"
