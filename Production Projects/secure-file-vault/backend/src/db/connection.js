@@ -46,7 +46,7 @@ export const memoryStore = {
 };
 
 /**
- * Execute SQL query against PostgreSQL DB with graceful local fallback
+ * Execute SQL query against PostgreSQL DB with graceful local fallback and auto-migration
  */
 export async function query(text, params = []) {
   if (isCloudSql) {
@@ -58,6 +58,17 @@ export async function query(text, params = []) {
       return res;
     } catch (err) {
       console.error('[Cloud SQL Query Error]:', err.message);
+      // Auto-migrate schema if tables do not exist yet (code 42P01 = undefined_table)
+      if (err.code === '42P01' || (err.message && err.message.includes('does not exist'))) {
+        console.log('[Cloud SQL Query] Auto-creating missing tables...');
+        try {
+          await runMigrations();
+          return await pool.query(text, params);
+        } catch (retryErr) {
+          console.error('[Cloud SQL Retry Error]:', retryErr.message);
+          throw retryErr;
+        }
+      }
       throw err;
     }
   }
@@ -75,7 +86,7 @@ export async function initDb() {
     console.log(`[Database Init] Connecting to Cloud SQL PostgreSQL database (${dbName})...`);
     await runMigrations();
   } catch (err) {
-    if (err.code === '3D000' || err.message.includes('does not exist')) {
+    if (err.code === '3D000' || (err.message && err.message.includes('database') && err.message.includes('does not exist'))) {
       console.log(`[Database Init] Database ${dbName} does not exist. Creating database...`);
       try {
         const rootPool = new Pool({

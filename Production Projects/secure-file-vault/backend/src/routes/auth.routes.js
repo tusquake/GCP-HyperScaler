@@ -64,7 +64,7 @@ router.post('/register', async (req, res) => {
 
   } catch (error) {
     console.error('Registration error:', error);
-    return res.status(500).json({ error: 'Failed to create user account' });
+    return res.status(500).json({ error: error.message || 'Failed to create user account' });
   }
 });
 
@@ -113,7 +113,7 @@ router.post('/login', async (req, res) => {
 
   } catch (error) {
     console.error('Login error:', error);
-    return res.status(500).json({ error: 'Authentication failed due to database error' });
+    return res.status(500).json({ error: error.message || 'Authentication failed due to database error' });
   }
 });
 
