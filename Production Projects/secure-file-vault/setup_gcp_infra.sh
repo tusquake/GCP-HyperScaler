@@ -71,7 +71,17 @@ gcloud services vpc-peerings connect \
   --network="${VPC_NAME}" \
   --project="${PROJECT_ID}" || true
 
+# Check if connector exists in ERROR state and delete if needed
+if gcloud compute networks vpc-access connectors describe "${CONNECTOR_NAME}" --region="${REGION}" --project="${PROJECT_ID}" &>/dev/null; then
+    EXISTING_STATE=$(gcloud compute networks vpc-access connectors describe "${CONNECTOR_NAME}" --region="${REGION}" --format="value(state)" --project="${PROJECT_ID}" 2>/dev/null || echo "UNKNOWN")
+    if [ "${EXISTING_STATE}" = "ERROR" ]; then
+        echo "Detected Connector [${CONNECTOR_NAME}] in ERROR state (interrupted creation). Deleting before recreating..."
+        gcloud compute networks vpc-access connectors delete "${CONNECTOR_NAME}" --region="${REGION}" --project="${PROJECT_ID}" --quiet || true
+    fi
+fi
+
 if ! gcloud compute networks vpc-access connectors describe "${CONNECTOR_NAME}" --region="${REGION}" --project="${PROJECT_ID}" &>/dev/null; then
+    echo "Creating Serverless VPC Access Connector [${CONNECTOR_NAME}]..."
     gcloud compute networks vpc-access connectors create "${CONNECTOR_NAME}" \
       --network="${VPC_NAME}" \
       --region="${REGION}" \
