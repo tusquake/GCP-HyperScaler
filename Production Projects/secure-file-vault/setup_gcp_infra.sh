@@ -23,7 +23,7 @@ BUCKET_NAME="${PROJECT_ID}-secure-file-vault-bucket"
 
 echo "--> Target Project: ${PROJECT_ID}"
 echo "--> Target Region:  ${REGION}"
-echo "--> Using Cloud SQL Instance: ${DB_INSTANCE_NAME}"
+echo "--> Cloud SQL Instance: ${DB_INSTANCE_NAME}"
 
 # Step 1: Enable Required GCP APIs
 echo "[1/7] Enabling GCP Service APIs..."
@@ -121,17 +121,17 @@ if ! gcloud iam service-accounts describe "${SA_EMAIL}" --project="${PROJECT_ID}
     gcloud iam service-accounts create "${SA_NAME}" \
       --display-name="Secure File Vault Backend Service Account" \
       --project="${PROJECT_ID}"
+    echo "Waiting 10 seconds for IAM Service Account directory propagation..."
+    sleep 10
 fi
 
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/cloudsql.client" \
-  --condition=None
+  --role="roles/cloudsql.client"
 
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/cloudsql.instanceUser" \
-  --condition=None
+  --role="roles/cloudsql.instanceUser"
 
 gcloud storage buckets add-iam-policy-binding "gs://${BUCKET_NAME}" \
   --member="serviceAccount:${SA_EMAIL}" \
