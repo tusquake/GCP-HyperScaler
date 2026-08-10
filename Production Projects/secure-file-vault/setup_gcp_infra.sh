@@ -81,6 +81,18 @@ if ! gcloud compute networks vpc-access connectors describe "${CONNECTOR_NAME}" 
       --project="${PROJECT_ID}"
 fi
 
+# Wait for Serverless VPC Access Connector to reach READY state
+echo "Checking Serverless VPC Connector readiness status..."
+for i in {1..30}; do
+  CONNECTOR_STATE=$(gcloud compute networks vpc-access connectors describe "${CONNECTOR_NAME}" --region="${REGION}" --format="value(state)" --project="${PROJECT_ID}" 2>/dev/null || echo "UNKNOWN")
+  if [ "${CONNECTOR_STATE}" = "READY" ]; then
+    echo "Serverless VPC Access Connector [${CONNECTOR_NAME}] is READY."
+    break
+  fi
+  echo "Connector state is '${CONNECTOR_STATE}'. Waiting 10 seconds (${i}/30)..."
+  sleep 10
+done
+
 # Step 4: Configure Database on Existing Cloud SQL Instance (secure-app-db)
 echo "[4/7] Verifying Existing Cloud SQL Instance (${DB_INSTANCE_NAME}) and Creating Database..."
 if ! gcloud sql instances describe "${DB_INSTANCE_NAME}" --project="${PROJECT_ID}" &>/dev/null; then
