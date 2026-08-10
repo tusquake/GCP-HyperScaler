@@ -72,7 +72,8 @@ if ! gcloud compute addresses describe "google-managed-services-${VPC_NAME}" --g
       --project="${PROJECT_ID}"
 fi
 
-gcloud services peering connect \
+# Corrected gcloud CLI syntax: vpc-peerings
+gcloud services vpc-peerings connect \
   --service=servicenetworking.googleapis.com \
   --ranges="google-managed-services-${VPC_NAME}" \
   --network="${VPC_NAME}" \
