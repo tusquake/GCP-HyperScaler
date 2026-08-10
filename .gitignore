@@ -1,0 +1,28 @@
+# Node.js dependencies
+node_modules/
+package-lock.json
+
+# Environment variables & secrets
+.env
+.env.*
+*.pem
+*.key
+*.json.key
+
+# Build outputs
+dist/
+build/
+out/
+
+# Terraform artifacts & state
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+crash.log
+
+# System & IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
