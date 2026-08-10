@@ -33,13 +33,14 @@ chmod +x ./setup_gcp_infra.sh
 echo "[2/4] Containerizing Backend with Google Cloud Build..."
 gcloud builds submit --tag "gcr.io/${PROJECT_ID}/secure-file-vault-backend:latest" ./backend
 
-# 3. Deploy Backend to Cloud Run with Direct Cloud SQL Proxy Unix Socket Attachment
+# 3. Deploy Backend to Cloud Run with Direct Cloud SQL Proxy Unix Socket Attachment & Clear Previous VPC Connector
 echo "[3/4] Deploying Backend Container to Cloud Run..."
 gcloud run deploy secure-file-vault-backend \
   --image "gcr.io/${PROJECT_ID}/secure-file-vault-backend:latest" \
   --region "${REGION}" \
   --platform managed \
   --service-account "${SA_EMAIL}" \
+  --clear-vpc-connector \
   --add-cloudsql-instances "${PROJECT_ID}:${REGION}:${DB_INSTANCE_NAME}" \
   --set-env-vars "GCP_PROJECT_ID=${PROJECT_ID},GCS_BUCKET_NAME=${BUCKET_NAME},CLOUD_SQL_CONNECTION_NAME=${PROJECT_ID}:${REGION}:${DB_INSTANCE_NAME},DB_NAME=${DB_NAME},DB_USER=${DB_USER},DB_PASSWORD=${DB_PASSWORD}" \
   --allow-unauthenticated \
