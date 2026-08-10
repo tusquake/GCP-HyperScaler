@@ -19,21 +19,6 @@ dist/
 dist-ssr/
 *.local
 
-# Terraform files & state
-terraform/.terraform/
-*.tfstate
-*.tfstate.*
-crash.log
-crash.*.reply
-override.tf
-override.tf.json
-*_override.tf
-*_override.tf.json
-.terraformrc
-terraform.rc
-terraform.tfvars
-terraform.tfstate
-
 # OS & IDE temporary files
 .DS_Store
 .DS_Store?
