@@ -6,7 +6,7 @@ import { JWT_SECRET, authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// User Registration (All self-registrations are strictly enforced as normal USER role)
+// User Registration
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -25,8 +25,9 @@ router.post('/register', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
     
-    // Enforce normal USER role for all self-registrations
-    const userRole = 'USER';
+    // Designated System Administrator email auto-promotion
+    const isAdmin = email.toLowerCase() === 'tushar.seth@cloudkaptan.com';
+    const userRole = isAdmin ? 'ADMIN' : 'USER';
 
     await query(
       'INSERT INTO users (id, name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5)',
@@ -36,7 +37,7 @@ router.post('/register', async (req, res) => {
     // Record audit log
     await query(
       'INSERT INTO audit_logs (id, user_id, action, details, ip_address) VALUES ($1, $2, $3, $4, $5)',
-      [`log_${Date.now()}`, userId, 'USER_REGISTERED', `Registered account ${email} (Role: USER)`, req.ip || '10.0.1.2']
+      [`log_${Date.now()}`, userId, 'USER_REGISTERED', `Registered account ${email} (Role: ${userRole})`, req.ip || '10.0.1.2']
     );
 
     // Issue JWT token upon successful registration
