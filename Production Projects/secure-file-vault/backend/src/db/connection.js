@@ -4,31 +4,34 @@ const { Pool } = pg;
 
 const isCloudSql = process.env.CLOUD_SQL_CONNECTION_NAME || process.env.DB_HOST;
 
-// Configure PostgreSQL pool with Cloud SQL Unix Socket / Private IP support
+const dbUser = process.env.DB_USER || 'postgres';
+const dbPassword = process.env.DB_PASSWORD || 'SecurePassword123!';
+const dbName = process.env.DB_NAME || 'file_vault_db';
+const dbPort = parseInt(process.env.DB_PORT || '5432');
+
+let hostPath = 'localhost';
+if (process.env.CLOUD_SQL_CONNECTION_NAME) {
+  hostPath = `/cloudsql/${process.env.CLOUD_SQL_CONNECTION_NAME}`;
+} else if (process.env.DB_HOST) {
+  hostPath = process.env.DB_HOST;
+}
+
 const poolConfig = {
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'SecurePassword123!',
-  database: process.env.DB_NAME || 'file_vault_db',
-  port: parseInt(process.env.DB_PORT || '5432'),
+  user: dbUser,
+  password: dbPassword,
+  database: dbName,
+  host: hostPath,
+  port: dbPort,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
 };
 
-if (process.env.CLOUD_SQL_CONNECTION_NAME) {
-  // Cloud SQL Unix Socket connection format used by Cloud Run
-  poolConfig.host = `/cloudsql/${process.env.CLOUD_SQL_CONNECTION_NAME}`;
-} else if (process.env.DB_HOST) {
-  poolConfig.host = process.env.DB_HOST;
-} else {
-  poolConfig.host = 'localhost';
-}
-
 if (process.env.DB_SSL === 'true') {
   poolConfig.ssl = { rejectUnauthorized: false };
 }
 
-const pool = new Pool(poolConfig);
+let pool = new Pool(poolConfig);
 
 pool.on('error', (err) => {
   console.error('[Cloud SQL Pool Error]:', err);
@@ -47,11 +50,16 @@ export const memoryStore = {
  */
 export async function query(text, params = []) {
   if (isCloudSql) {
-    const start = Date.now();
-    const res = await pool.query(text, params);
-    const duration = Date.now() - start;
-    console.log(`[Cloud SQL Query] Executed in ${duration}ms (rows: ${res.rowCount})`);
-    return res;
+    try {
+      const start = Date.now();
+      const res = await pool.query(text, params);
+      const duration = Date.now() - start;
+      console.log(`[Cloud SQL Query] Executed in ${duration}ms (rows: ${res.rowCount})`);
+      return res;
+    } catch (err) {
+      console.error('[Cloud SQL Query Error]:', err.message);
+      throw err;
+    }
   }
 
   return mockQueryHandler(text, params);
@@ -64,56 +72,77 @@ export async function initDb() {
   if (!isCloudSql) return;
 
   try {
-    console.log('[Database Init] Running DDL table migrations on Cloud SQL PostgreSQL...');
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-          id VARCHAR(64) PRIMARY KEY,
-          name VARCHAR(255) NOT NULL,
-          email VARCHAR(255) UNIQUE NOT NULL,
-          password_hash VARCHAR(255) NOT NULL,
-          role VARCHAR(32) NOT NULL DEFAULT 'USER',
-          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS folders (
-          id VARCHAR(64) PRIMARY KEY,
-          name VARCHAR(255) NOT NULL,
-          path VARCHAR(255) UNIQUE NOT NULL,
-          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS user_folder_permissions (
-          id SERIAL PRIMARY KEY,
-          user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
-          folder_id VARCHAR(64) REFERENCES folders(id) ON DELETE CASCADE,
-          can_upload BOOLEAN DEFAULT TRUE,
-          can_read BOOLEAN DEFAULT TRUE,
-          UNIQUE(user_id, folder_id)
-      );
-
-      CREATE TABLE IF NOT EXISTS file_metadata (
-          id VARCHAR(64) PRIMARY KEY,
-          folder_id VARCHAR(64) REFERENCES folders(id) ON DELETE CASCADE,
-          name VARCHAR(255) NOT NULL,
-          size_bytes BIGINT NOT NULL,
-          uploaded_by VARCHAR(64) REFERENCES users(id),
-          gcs_path VARCHAR(512) NOT NULL,
-          uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS audit_logs (
-          id VARCHAR(64) PRIMARY KEY,
-          user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
-          action VARCHAR(64) NOT NULL,
-          details TEXT,
-          ip_address VARCHAR(45),
-          timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-    console.log('[Database Init] Cloud SQL PostgreSQL DDL schema migration complete.');
+    console.log(`[Database Init] Connecting to Cloud SQL PostgreSQL database (${dbName})...`);
+    await runMigrations();
   } catch (err) {
-    console.error('[Database Init Error] Migration failed:', err);
+    if (err.code === '3D000' || err.message.includes('does not exist')) {
+      console.log(`[Database Init] Database ${dbName} does not exist. Creating database...`);
+      try {
+        const rootPool = new Pool({
+          ...poolConfig,
+          database: 'postgres'
+        });
+        await rootPool.query(`CREATE DATABASE "${dbName}";`);
+        await rootPool.end();
+        console.log(`[Database Init] Database ${dbName} created successfully.`);
+        await runMigrations();
+      } catch (createErr) {
+        console.error('[Database Init Error] Failed to create database:', createErr.message);
+      }
+    } else {
+      console.error('[Database Init Error] Migration error:', err.message);
+    }
   }
+}
+
+async function runMigrations() {
+  console.log('[Database Init] Running DDL table migrations on Cloud SQL PostgreSQL...');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR(64) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        role VARCHAR(32) NOT NULL DEFAULT 'USER',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS folders (
+        id VARCHAR(64) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        path VARCHAR(255) UNIQUE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS user_folder_permissions (
+        id SERIAL PRIMARY KEY,
+        user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+        folder_id VARCHAR(64) REFERENCES folders(id) ON DELETE CASCADE,
+        can_upload BOOLEAN DEFAULT TRUE,
+        can_read BOOLEAN DEFAULT TRUE,
+        UNIQUE(user_id, folder_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS file_metadata (
+        id VARCHAR(64) PRIMARY KEY,
+        folder_id VARCHAR(64) REFERENCES folders(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        size_bytes BIGINT NOT NULL,
+        uploaded_by VARCHAR(64) REFERENCES users(id),
+        gcs_path VARCHAR(512) NOT NULL,
+        uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+        id VARCHAR(64) PRIMARY KEY,
+        user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+        action VARCHAR(64) NOT NULL,
+        details TEXT,
+        ip_address VARCHAR(45),
+        timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  console.log('[Database Init] Cloud SQL PostgreSQL DDL schema migration complete.');
 }
 
 function mockQueryHandler(text, params) {
