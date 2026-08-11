@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Folder, File, Download } from 'lucide-react';
+import { Folder, File, Download, Lock } from 'lucide-react';
 import api from '../api/client';
 import LargeFileUploader from '../components/LargeFileUploader';
 
@@ -72,7 +72,7 @@ export default function UserDashboard() {
           User Workspace
         </h1>
         <p style={{ fontSize: '0.825rem', color: 'var(--text-muted)' }}>
-          Browse assigned folders, upload files up to 1.5GB+ directly to GCS, and download files
+          Browse assigned folders, view files, and download documents
         </p>
       </div>
 
@@ -98,14 +98,28 @@ export default function UserDashboard() {
                   fontSize: '0.85rem',
                   display: 'flex',
                   alignItems: 'center',
+                  justifyContent: 'space-between',
                   gap: '0.4rem',
                   fontWeight: selectedFolder?.id === f.id ? 600 : 400
                 }}
               >
-                <Folder size={15} color={selectedFolder?.id === f.id ? '#2563eb' : '#64748b'} />
-                <span>{f.name}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Folder size={15} color={selectedFolder?.id === f.id ? '#2563eb' : '#64748b'} />
+                  <span>{f.name}</span>
+                </div>
+                {!f.can_upload && (
+                  <span className="badge badge-neutral" style={{ fontSize: '0.65rem', padding: '0.1rem 0.35rem' }}>
+                    View Only
+                  </span>
+                )}
               </div>
             ))}
+
+            {folders.length === 0 && (
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: '0.5rem' }}>
+                No storage folders assigned yet.
+              </div>
+            )}
           </div>
         </div>
 
@@ -113,7 +127,14 @@ export default function UserDashboard() {
         <div>
           {selectedFolder ? (
             <>
-              <LargeFileUploader folder={selectedFolder} onUploadSuccess={() => fetchFiles(selectedFolder.id)} />
+              {selectedFolder.can_upload ? (
+                <LargeFileUploader folder={selectedFolder} onUploadSuccess={() => fetchFiles(selectedFolder.id)} />
+              ) : (
+                <div className="card-panel" style={{ padding: '0.85rem 1.25rem', marginBottom: '1.25rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '0.6rem', color: '#64748b', fontSize: '0.825rem' }}>
+                  <Lock size={16} color="#64748b" />
+                  <span><strong>Read-Only Access:</strong> You have permission to view and download files in {selectedFolder.name}, but uploading is restricted by Admin.</span>
+                </div>
+              )}
 
               <div className="card-panel">
                 <div style={{ padding: '0.85rem 1rem', borderBottom: '1px solid var(--border-subtle)', fontWeight: 600, fontSize: '0.9rem' }}>
