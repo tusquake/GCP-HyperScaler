@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, FolderPlus, UserPlus, Activity } from 'lucide-react';
+import { Users, FolderPlus, UserPlus, Activity, ShieldAlert, Edit3 } from 'lucide-react';
 import api from '../api/client';
 
 export default function AdminDashboard() {
@@ -12,12 +12,16 @@ export default function AdminDashboard() {
   // Modals
   const [showUserModal, setShowUserModal] = useState(false);
   const [showFolderModal, setShowFolderModal] = useState(false);
+  const [showEditPermsModal, setShowEditPermsModal] = useState(false);
+  const [selectedUserForPerms, setSelectedUserForPerms] = useState(null);
 
   // Form inputs
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
-  const [selectedFolderIds, setSelectedFolderIds] = useState([]);
+  
+  // Folder permissions map: { [folder_id]: { can_read: boolean, can_upload: boolean } }
+  const [folderPermsMap, setFolderPermsMap] = useState({});
 
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderPath, setNewFolderPath] = useState('');
@@ -44,23 +48,96 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleOpenUserModal = () => {
+    setNewUserName('');
+    setNewUserEmail('');
+    setNewUserPassword('');
+    const initialMap = {};
+    folders.forEach(f => {
+      initialMap[f.id] = { can_read: true, can_upload: true };
+    });
+    setFolderPermsMap(initialMap);
+    setShowUserModal(true);
+  };
+
+  const handleOpenEditPerms = (user) => {
+    setSelectedUserForPerms(user);
+    const existingMap = {};
+    folders.forEach(f => {
+      const existing = (user.assigned_folders || []).find(af => af.folder_id === f.id);
+      existingMap[f.id] = {
+        can_read: existing ? existing.can_read : false,
+        can_upload: existing ? existing.can_upload : false
+      };
+    });
+    setFolderPermsMap(existingMap);
+    setShowEditPermsModal(true);
+  };
+
+  const handleToggleRead = (folderId) => {
+    setFolderPermsMap(prev => ({
+      ...prev,
+      [folderId]: {
+        ...prev[folderId],
+        can_read: !prev[folderId]?.can_read
+      }
+    }));
+  };
+
+  const handleToggleUpload = (folderId) => {
+    setFolderPermsMap(prev => ({
+      ...prev,
+      [folderId]: {
+        ...prev[folderId],
+        can_upload: !prev[folderId]?.can_upload
+      }
+    }));
+  };
+
   const handleCreateUser = async (e) => {
     e.preventDefault();
     try {
+      const formattedPerms = Object.keys(folderPermsMap).map(fId => ({
+        folder_id: fId,
+        can_read: folderPermsMap[fId].can_read,
+        can_upload: folderPermsMap[fId].can_upload
+      }));
+
       await api.post('/admin/users', {
         name: newUserName,
         email: newUserEmail,
         password: newUserPassword,
-        folder_ids: selectedFolderIds
+        folder_permissions: formattedPerms
       });
+
       setShowUserModal(false);
-      setNewUserName('');
-      setNewUserEmail('');
-      setNewUserPassword('');
-      setSelectedFolderIds([]);
       fetchData();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to create user');
+    }
+  };
+
+  const handleSaveUserPermissions = async (e) => {
+    e.preventDefault();
+    if (!selectedUserForPerms) return;
+
+    try {
+      const formattedPerms = Object.keys(folderPermsMap).map(fId => ({
+        folder_id: fId,
+        can_read: folderPermsMap[fId].can_read,
+        can_upload: folderPermsMap[fId].can_upload
+      }));
+
+      await api.post('/admin/permissions', {
+        user_id: selectedUserForPerms.id,
+        folder_permissions: formattedPerms
+      });
+
+      setShowEditPermsModal(false);
+      setSelectedUserForPerms(null);
+      fetchData();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to update user permissions');
     }
   };
 
@@ -80,16 +157,8 @@ export default function AdminDashboard() {
     }
   };
 
-  const toggleFolderPermission = (folderId) => {
-    if (selectedFolderIds.includes(folderId)) {
-      setSelectedFolderIds(selectedFolderIds.filter(id => id !== folderId));
-    } else {
-      setSelectedFolderIds([...selectedFolderIds, folderId]);
-    }
-  };
-
   return (
-    <div style={{ maxWidth: '1000px', margin: '1.5rem auto', padding: '0 1rem' }}>
+    <div style={{ maxWidth: '1020px', margin: '1.5rem auto', padding: '0 1rem' }}>
       
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
@@ -98,7 +167,7 @@ export default function AdminDashboard() {
             Admin Control Center
           </h1>
           <p style={{ fontSize: '0.825rem', color: 'var(--text-muted)' }}>
-            Manage organization users, storage folders, and audit logs
+            Manage organization accounts, granular Read/Upload folder permissions, and audit logs
           </p>
         </div>
 
@@ -106,7 +175,7 @@ export default function AdminDashboard() {
           <button onClick={() => setShowFolderModal(true)} className="btn-secondary" style={{ fontSize: '0.8rem' }}>
             <FolderPlus size={14} /> New Folder
           </button>
-          <button onClick={() => setShowUserModal(true)} className="btn-primary" style={{ fontSize: '0.8rem' }}>
+          <button onClick={handleOpenUserModal} className="btn-primary" style={{ fontSize: '0.8rem' }}>
             <UserPlus size={14} /> New User Account
           </button>
         </div>
@@ -160,7 +229,8 @@ export default function AdminDashboard() {
                 <th>Name</th>
                 <th>Email</th>
                 <th>Role</th>
-                <th>Assigned Folder Rights</th>
+                <th>Granular Folder Rights</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -174,19 +244,31 @@ export default function AdminDashboard() {
                     </span>
                   </td>
                   <td>
-                    {u.assigned_folders && u.assigned_folders.length > 0 ? (
+                    {u.role === 'ADMIN' ? (
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Full System Access</span>
+                    ) : u.assigned_folders && u.assigned_folders.length > 0 ? (
                       <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                         {u.assigned_folders.map(f => {
                           const folderObj = folders.find(fd => fd.id === f.folder_id);
+                          const permsLabel = [];
+                          if (f.can_read) permsLabel.push('View');
+                          if (f.can_upload) permsLabel.push('Upload');
                           return (
                             <span key={f.folder_id} className="badge badge-neutral" style={{ fontSize: '0.725rem' }}>
-                              {folderObj ? folderObj.name : f.folder_id}
+                              {folderObj ? folderObj.name : f.folder_id}: <strong>{permsLabel.join('+') || 'None'}</strong>
                             </span>
                           );
                         })}
                       </div>
                     ) : (
-                      <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Full System Access</span>
+                      <span style={{ color: 'var(--danger)', fontSize: '0.8rem' }}>No Folders Assigned</span>
+                    )}
+                  </td>
+                  <td>
+                    {u.role !== 'ADMIN' && (
+                      <button onClick={() => handleOpenEditPerms(u)} className="btn-secondary" style={{ padding: '0.25rem 0.55rem', fontSize: '0.725rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <Edit3 size={12} /> Edit Permissions
+                      </button>
                     )}
                   </td>
                 </tr>
@@ -240,7 +322,7 @@ export default function AdminDashboard() {
       {/* Create User Modal */}
       {showUserModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-          <div className="card-panel" style={{ width: '100%', maxWidth: '420px', padding: '1.5rem' }}>
+          <div className="card-panel" style={{ width: '100%', maxWidth: '480px', padding: '1.5rem' }}>
             <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '1rem' }}>Create User Account</h3>
             
             <form onSubmit={handleCreateUser}>
@@ -260,14 +342,28 @@ export default function AdminDashboard() {
               </div>
 
               <div style={{ marginBottom: '1rem' }}>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>Assign Folder Permissions</label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+                  Granular Folder Rights (View vs Upload)
+                </label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto', background: 'var(--bg-subtle)', padding: '0.65rem', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
                   {folders.map(f => (
-                    <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={selectedFolderIds.includes(f.id)} onChange={() => toggleFolderPermission(f.id)} />
-                      <span>{f.name}</span>
-                    </label>
+                    <div key={f.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', paddingBottom: '0.3rem', borderBottom: '1px solid var(--border-subtle)' }}>
+                      <span style={{ fontWeight: 500 }}>{f.name}</span>
+                      <div style={{ display: 'flex', gap: '0.75rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={!!folderPermsMap[f.id]?.can_read} onChange={() => handleToggleRead(f.id)} />
+                          <span>View/Download</span>
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={!!folderPermsMap[f.id]?.can_upload} onChange={() => handleToggleUpload(f.id)} />
+                          <span>Upload</span>
+                        </label>
+                      </div>
+                    </div>
                   ))}
+                  {folders.length === 0 && (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No storage folders created yet. Create a folder first.</span>
+                  )}
                 </div>
               </div>
 
@@ -280,7 +376,51 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Folder Modal */}
+      {/* Edit Permissions Modal */}
+      {showEditPermsModal && selectedUserForPerms && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+          <div className="card-panel" style={{ width: '100%', maxWidth: '480px', padding: '1.5rem' }}>
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '0.3rem' }}>
+              Edit Folder Permissions
+            </h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+              Updating access rights for <strong>{selectedUserForPerms.name}</strong> ({selectedUserForPerms.email})
+            </p>
+            
+            <form onSubmit={handleSaveUserPermissions}>
+              <div style={{ marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '220px', overflowY: 'auto', background: 'var(--bg-subtle)', padding: '0.65rem', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
+                  {folders.map(f => (
+                    <div key={f.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', paddingBottom: '0.3rem', borderBottom: '1px solid var(--border-subtle)' }}>
+                      <span style={{ fontWeight: 500 }}>{f.name}</span>
+                      <div style={{ display: 'flex', gap: '0.75rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={!!folderPermsMap[f.id]?.can_read} onChange={() => handleToggleRead(f.id)} />
+                          <span>View/Download</span>
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', cursor: 'pointer' }}>
+                          <input type="checkbox" checked={!!folderPermsMap[f.id]?.can_upload} onChange={() => handleToggleUpload(f.id)} />
+                          <span>Upload</span>
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                  {folders.length === 0 && (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No storage folders created yet.</span>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
+                <button type="button" onClick={() => setShowEditPermsModal(false)} className="btn-secondary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}>Cancel</button>
+                <button type="submit" className="btn-primary" style={{ padding: '0.4rem 0.9rem', fontSize: '0.8rem' }}>Update Permissions</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create Folder Modal */}
       {showFolderModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
           <div className="card-panel" style={{ width: '100%', maxWidth: '380px', padding: '1.5rem' }}>

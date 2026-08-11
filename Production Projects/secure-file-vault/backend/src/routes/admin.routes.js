@@ -32,16 +32,15 @@ router.get('/users', async (req, res) => {
   }
 });
 
-// Create new normal user (Role enforced as USER; no admin selection/signup)
+// Create new normal user with granular Read / Upload folder permissions
 router.post('/users', async (req, res) => {
   try {
-    const { name, email, password, folder_ids } = req.body;
+    const { name, email, password, folder_permissions } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Name, email, and password are required' });
     }
 
-    // Check if email already exists
     const existing = await query('SELECT id FROM users WHERE LOWER(email) = LOWER($1)', [email]);
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'A user with this email address already exists' });
@@ -50,8 +49,6 @@ router.post('/users', async (req, res) => {
     const userId = `usr_${Date.now()}`;
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
-    
-    // Enforce normal USER role
     const userRole = 'USER';
 
     await query(
@@ -59,17 +56,21 @@ router.post('/users', async (req, res) => {
       [userId, name, email, passwordHash, userRole]
     );
 
-    // Assign folder permissions if specified
-    if (folder_ids && Array.isArray(folder_ids)) {
-      for (const folderId of folder_ids) {
-        await query(
-          'INSERT INTO user_folder_permissions (user_id, folder_id, can_upload, can_read) VALUES ($1, $2, TRUE, TRUE) ON CONFLICT DO NOTHING',
-          [userId, folderId]
-        );
+    // Assign granular folder permissions (Read & Upload independently)
+    if (folder_permissions && Array.isArray(folder_permissions)) {
+      for (const perm of folder_permissions) {
+        if (perm.can_read || perm.can_upload) {
+          await query(
+            `INSERT INTO user_folder_permissions (user_id, folder_id, can_upload, can_read)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (user_id, folder_id) 
+             DO UPDATE SET can_upload = EXCLUDED.can_upload, can_read = EXCLUDED.can_read`,
+            [userId, perm.folder_id, perm.can_upload ? true : false, perm.can_read ? true : false]
+          );
+        }
       }
     }
 
-    // Audit log
     await query(
       'INSERT INTO audit_logs (id, user_id, action, details, ip_address) VALUES ($1, $2, $3, $4, $5)',
       [`log_${Date.now()}`, req.user.id, 'USER_CREATED', `Created user account ${email}`, req.ip || '10.0.1.2']
@@ -80,7 +81,7 @@ router.post('/users', async (req, res) => {
       name,
       email,
       role: userRole,
-      assigned_folders: folder_ids || []
+      assigned_folders: folder_permissions || []
     });
 
   } catch (error) {
@@ -89,30 +90,37 @@ router.post('/users', async (req, res) => {
   }
 });
 
-// Update folder permissions for a user
+// Update folder permissions for a user (Granular Read & Upload controls)
 router.post('/permissions', async (req, res) => {
   try {
-    const { user_id, folder_id, can_upload, can_read } = req.body;
+    const { user_id, folder_permissions } = req.body;
 
-    if (!user_id || !folder_id) {
-      return res.status(400).json({ error: 'user_id and folder_id are required' });
+    if (!user_id || !Array.isArray(folder_permissions)) {
+      return res.status(400).json({ error: 'user_id and folder_permissions array are required' });
+    }
+
+    // Delete previous permissions for this user
+    await query('DELETE FROM user_folder_permissions WHERE user_id = $1', [user_id]);
+
+    // Insert updated permissions
+    for (const perm of folder_permissions) {
+      if (perm.can_read || perm.can_upload) {
+        await query(
+          `INSERT INTO user_folder_permissions (user_id, folder_id, can_upload, can_read)
+           VALUES ($1, $2, $3, $4)`,
+          [user_id, perm.folder_id, perm.can_upload ? true : false, perm.can_read ? true : false]
+        );
+      }
     }
 
     await query(
-      `INSERT INTO user_folder_permissions (user_id, folder_id, can_upload, can_read)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (user_id, folder_id) 
-       DO UPDATE SET can_upload = EXCLUDED.can_upload, can_read = EXCLUDED.can_read`,
-      [user_id, folder_id, can_upload ?? true, can_read ?? true]
-    );
-
-    await query(
       'INSERT INTO audit_logs (id, user_id, action, details, ip_address) VALUES ($1, $2, $3, $4, $5)',
-      [`log_${Date.now()}`, req.user.id, 'PERMISSION_UPDATED', `Updated permissions for user ${user_id} on folder ${folder_id}`, req.ip || '10.0.1.2']
+      [`log_${Date.now()}`, req.user.id, 'PERMISSIONS_UPDATED', `Updated granular permissions for user ${user_id}`, req.ip || '10.0.1.2']
     );
 
     res.json({ message: 'Permissions updated successfully' });
   } catch (error) {
+    console.error('Error updating permissions:', error);
     res.status(500).json({ error: 'Failed to update folder permissions' });
   }
 });
