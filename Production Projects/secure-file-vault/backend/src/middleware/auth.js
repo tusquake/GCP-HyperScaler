@@ -1,6 +1,8 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
-export const JWT_SECRET = process.env.JWT_SECRET || 'vault-production-secure-jwt-key-2026';
+// Dynamic secret generation: Use process.env.JWT_SECRET if provided, otherwise generate a secure runtime key
+export const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 
 /**
  * Express middleware to authenticate JWT token from Authorization header

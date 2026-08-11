@@ -5,7 +5,7 @@ const { Pool } = pg;
 const isCloudSql = process.env.DB_HOST || process.env.CLOUD_SQL_CONNECTION_NAME;
 
 const dbUser = process.env.DB_USER || 'postgres';
-const dbPassword = process.env.DB_PASSWORD || 'SecurePassword123!';
+const dbPassword = process.env.DB_PASSWORD || '';
 const dbName = process.env.DB_NAME || 'file_vault_db';
 const dbPort = parseInt(process.env.DB_PORT || '5432');
 
