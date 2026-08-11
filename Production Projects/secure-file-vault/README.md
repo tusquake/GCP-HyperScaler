@@ -112,31 +112,46 @@ If client-side CORS or browser policies block direct `PUT` requests to `storage.
 
 ---
 
-## 6. Challenges Encountered & Technical Solutions
+## 6. GCP Service APIs Activation & Technical Rationale
 
-### 6.1 Database Socket Error (`connect ECONNREFUSED /cloudsql/...`)
+| GCP API Service | Full API Identifier | Technical Rationale |
+| :--- | :--- | :--- |
+| **Compute Engine API** | `compute.googleapis.com` | Required to create and manage custom VPC Networks (`file-vault-vpc`), Private Subnets (`10.0.1.0/24`), reserved IP blocks, and internal firewall routing. |
+| **Service Networking API** | `servicenetworking.googleapis.com` | Required to establish Private Service Access Peering between the VPC network and Google managed services, allowing Cloud SQL to run on a Private IP. |
+| **Serverless VPC Access API** | `vpcaccess.googleapis.com` | Required to support Direct VPC Subnet Egress and VPC Connectors, enabling serverless Cloud Run instances to route traffic internally into private subnets. |
+| **Cloud SQL Admin API** | `sqladmin.googleapis.com` | Required to provision, configure, patch, and connect to PostgreSQL instances (`secure-app-db`) and manage application databases (`file_vault_db`). |
+| **Cloud Storage API** | `storage.googleapis.com` | Required to create object storage buckets (`gs://${PROJECT_ID}-secure-file-vault-bucket`), configure bucket CORS policies, and execute resumable uploads. |
+| **Cloud Run API** | `run.googleapis.com` | Required to deploy and scale the backend Express API container and serve the React Single Page Application (SPA) with automatic HTTPS TLS termination. |
+| **IAM API** | `iam.googleapis.com` | Required to create dedicated GCP Service Accounts (`file-vault-backend-sa`) and assign least-privilege IAM roles (`roles/cloudsql.client`, `roles/storage.objectAdmin`). |
+| **IAM Credentials API** | `iamcredentials.googleapis.com` | Required by `@google-cloud/storage` to generate OAuth2 access tokens and signed URLs on the fly using Cloud Run's IAM Managed Identity (`roles/iam.serviceAccountTokenCreator`). |
+
+---
+
+## 7. Challenges Encountered & Technical Solutions
+
+### 7.1 Database Socket Error (`connect ECONNREFUSED /cloudsql/...`)
 - Root Cause: Cloud Run attempted to connect to Unix socket `/cloudsql/...` without an active VPC Connector or Private IP routing.
 - Resolution: Configured direct TCP IP connectivity (`DB_HOST`) with `--assign-ip` on Cloud SQL instance `secure-app-db`, enabling reliable database connectivity in approximately 30 seconds.
 
-### 6.2 Serverless VPC Access Connector Quota Timeout (`Code 13`)
+### 7.2 Serverless VPC Access Connector Quota Timeout (`Code 13`)
 - Root Cause: GCP trial projects hit Compute Engine internal VM quotas during connector creation.
 - Resolution: Bypassed slow VPC Connector dependencies by utilizing Cloud SQL Auth Proxy / Direct TCP IP mode and passing `--clear-vpc-connector` to `gcloud run deploy`.
 
-### 6.3 Docker Cloud Build `npm ci` Failure
+### 7.3 Docker Cloud Build `npm ci` Failure
 - Root Cause: `npm ci` failed in `backend/Dockerfile` because `package-lock.json` was ignored by `.gitignore`.
 - Resolution: Modified `backend/Dockerfile` to `npm install --omit=dev`, updated `.gitignore` rules, and committed `package-lock.json` to source control.
 
-### 6.4 Storage SDK Signed URL IAM Permission Error
+### 7.4 Storage SDK Signed URL IAM Permission Error
 - Root Cause: `@google-cloud/storage` `getSignedUrl` required `signBlob` permissions on Cloud Run IAM Service Accounts.
 - Resolution: Adopted native `createResumableUpload` (which utilizes active OAuth2 tokens directly without requiring local private keys) and granted `roles/iam.serviceAccountTokenCreator`.
 
-### 6.5 GCS Browser CORS Policy Block (`ERR_FAILED 200/CORS`)
+### 7.5 GCS Browser CORS Policy Block (`ERR_FAILED 200/CORS`)
 - Root Cause: GCS bucket CORS configuration was skipped for pre-existing storage buckets inside creation conditional blocks.
 - Resolution: Updated `setup_gcp_infra.sh` to enforce `gcloud storage buckets update --cors-file=gcp/cors.json` on every run, and implemented an automatic API stream upload fallback route.
 
 ---
 
-## 7. Deployment Instructions
+## 8. Deployment Instructions
 
 Execute the automated single-command deployment script in Google Cloud Shell:
 
@@ -149,22 +164,22 @@ chmod +x deploy.sh setup_gcp_infra.sh
 
 ---
 
-## 8. System Design & Enterprise Architectural Improvements
+## 9. System Design & Enterprise Architectural Improvements
 
 To scale this application for large-scale enterprise production workloads, the following system design enhancements are recommended:
 
-### 8.1 Asynchronous Malware & Antivirus Scanning (Pub/Sub + Cloud Functions)
+### 9.1 Asynchronous Malware & Antivirus Scanning (Pub/Sub + Cloud Functions)
 - Configure GCS Bucket Event Notifications to publish object creation events to a Cloud Pub/Sub topic.
 - Deploy a serverless Cloud Function running ClamAV to inspect uploaded objects asynchronously before marking them as verified in `file_metadata`.
 
-### 8.2 Global Edge Caching (Cloud CDN + Signed URLs)
+### 9.2 Global Edge Caching (Cloud CDN + Signed URLs)
 - Place Google Cloud CDN in front of Cloud Storage buckets to cache static assets and frequently downloaded documents at edge locations globally, reducing latency and egress costs.
 
-### 8.3 Connection Pooling (PgBouncer Sidecar)
+### 9.3 Connection Pooling (PgBouncer Sidecar)
 - Deploy PgBouncer in front of Cloud SQL PostgreSQL to manage database connection pools efficiently, supporting thousands of concurrent user sessions without exhausting backend database limits.
 
-### 8.4 Storage Lifecycle Policies
+### 9.4 Storage Lifecycle Policies
 - Configure GCS Lifecycle Rules to transition files older than 90 days from Standard Storage to Nearline or Coldline Storage classes, optimizing long-term storage expenditure.
 
-### 8.5 Multi-Region High Availability & Disaster Recovery
+### 9.5 Multi-Region High Availability & Disaster Recovery
 - Enable Cloud SQL High Availability (HA) with regional standby replicas and configure multi-region GCS buckets (e.g., `US` or `EU`) to guarantee 99.999999999% (11 9s) data durability.
