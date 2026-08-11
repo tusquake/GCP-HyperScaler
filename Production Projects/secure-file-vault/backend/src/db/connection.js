@@ -186,14 +186,26 @@ function mockQueryHandler(text, params) {
     return { rows: [newFolder], rowCount: 1 };
   }
 
+  if (sql.includes('DELETE FROM user_folder_permissions WHERE user_id = $1')) {
+    const userId = params[0];
+    memoryStore.user_folder_permissions = memoryStore.user_folder_permissions.filter(p => p.user_id !== userId);
+    return { rows: [], rowCount: 1 };
+  }
+
   if (sql.includes('FROM user_folder_permissions')) {
     return { rows: memoryStore.user_folder_permissions, rowCount: memoryStore.user_folder_permissions.length };
   }
 
   if (sql.includes('INSERT INTO user_folder_permissions')) {
     const [user_id, folder_id, can_upload, can_read] = params;
-    memoryStore.user_folder_permissions.push({ user_id, folder_id, can_upload: true, can_read: true });
-    return { rows: [], rowCount: 1 };
+    const idx = memoryStore.user_folder_permissions.findIndex(p => p.user_id === user_id && p.folder_id === folder_id);
+    const item = { user_id, folder_id, can_upload: !!can_upload, can_read: !!can_read };
+    if (idx >= 0) {
+      memoryStore.user_folder_permissions[idx] = item;
+    } else {
+      memoryStore.user_folder_permissions.push(item);
+    }
+    return { rows: [item], rowCount: 1 };
   }
 
   if (sql.includes('FROM file_metadata')) {

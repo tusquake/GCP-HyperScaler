@@ -7,19 +7,19 @@ const router = express.Router();
 
 router.use(authenticateToken);
 
-// Get folders accessible to the logged-in user
+// Get folders accessible to the logged-in user with granular can_upload & can_read properties
 router.get('/my-folders', async (req, res) => {
   try {
     const userId = req.user.id;
     const userRole = req.user.role;
 
     if (userRole === 'ADMIN') {
-      const result = await query('SELECT * FROM folders ORDER BY name ASC');
+      const result = await query('SELECT *, TRUE as can_upload, TRUE as can_read FROM folders ORDER BY name ASC');
       return res.json(result.rows);
     }
 
     const result = await query(
-      `SELECT f.* FROM folders f
+      `SELECT f.id, f.name, f.path, f.created_at, p.can_upload, p.can_read FROM folders f
        JOIN user_folder_permissions p ON f.id = p.folder_id
        WHERE p.user_id = $1 AND p.can_read = TRUE
        ORDER BY f.name ASC`,
