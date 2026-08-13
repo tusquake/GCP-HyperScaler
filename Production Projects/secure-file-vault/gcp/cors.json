@@ -1,8 +1,8 @@
 [
   {
-    "origin": ["*"],
-    "method": ["GET", "PUT", "POST", "DELETE", "OPTIONS", "HEAD"],
-    "responseHeader": ["*"],
+    "origin": ["https://vault.example.com"],
+    "method": ["GET", "PUT", "POST", "HEAD", "OPTIONS"],
+    "responseHeader": ["Content-Type", "Content-Range", "Range", "X-GUploader-UploadID", "X-Request-ID"],
     "maxAgeSeconds": 3600
   }
 ]

@@ -26,6 +26,7 @@ export function AuthProvider({ children }) {
     } catch (err) {
       console.error('Failed to verify session token:', err);
       localStorage.removeItem('vault_auth_token');
+      localStorage.removeItem('vault_refresh_token');
       setUser(null);
     } finally {
       setLoading(false);
@@ -34,8 +35,11 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const res = await api.post('/auth/login', { email, password });
-    const { token, user: userData } = res.data;
+    const { token, refreshToken, user: userData } = res.data;
     localStorage.setItem('vault_auth_token', token);
+    if (refreshToken) {
+      localStorage.setItem('vault_refresh_token', refreshToken);
+    }
     setUser(userData);
     await checkAuth();
     return userData;
@@ -43,8 +47,11 @@ export function AuthProvider({ children }) {
 
   const register = async (name, email, password) => {
     const res = await api.post('/auth/register', { name, email, password });
-    const { token, user: userData } = res.data;
+    const { token, refreshToken, user: userData } = res.data;
     localStorage.setItem('vault_auth_token', token);
+    if (refreshToken) {
+      localStorage.setItem('vault_refresh_token', refreshToken);
+    }
     setUser(userData);
     await checkAuth();
     return userData;
@@ -52,6 +59,7 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     localStorage.removeItem('vault_auth_token');
+    localStorage.removeItem('vault_refresh_token');
     setUser(null);
     setSystemInfo(null);
   };

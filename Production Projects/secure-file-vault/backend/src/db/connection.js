@@ -1,11 +1,48 @@
 import pg from 'pg';
+import { logger } from '../services/logger.js';
 
 const { Pool } = pg;
 
-const isCloudSql = process.env.DB_HOST || process.env.CLOUD_SQL_CONNECTION_NAME;
+// -------------------------------------------------------------------
+// Secret Manager Integration
+// -------------------------------------------------------------------
+// In production, DB_PASSWORD and JWT_SECRET are fetched from GCP Secret Manager.
+// Set SECRET_DB_PASSWORD_NAME=projects/PROJECT/secrets/db-password/versions/latest
+// to enable automatic secret retrieval at startup.
+// Falls back to DB_PASSWORD env var for local development.
+
+let secretManagerClient = null;
+
+async function getSecretValue(secretName) {
+  if (!secretName) return null;
+  try {
+    if (!secretManagerClient) {
+      const { SecretManagerServiceClient } = await import('@google-cloud/secret-manager');
+      secretManagerClient = new SecretManagerServiceClient();
+    }
+    const [version] = await secretManagerClient.accessSecretVersion({ name: secretName });
+    return version.payload.data.toString('utf8');
+  } catch (err) {
+    logger.warn('Secret Manager access failed, falling back to env var', {
+      secretName,
+      error: err.message
+    });
+    return null;
+  }
+}
+
+// -------------------------------------------------------------------
+// Connection Pool Configuration
+// -------------------------------------------------------------------
+// Fix M1: Reduced max from 20 to 5 per instance.
+// Cloud Run max_instances(10) * pool_max(5) = 50 total connections
+// This stays well under Cloud SQL max_connections (100 default).
+//
+// Fix M5: Removed mockQueryHandler and memoryStore entirely.
+// Production code must not silently fall back to in-memory storage.
+// If DB is unreachable, operations fail explicitly.
 
 const dbUser = process.env.DB_USER || 'postgres';
-const dbPassword = process.env.DB_PASSWORD || '';
 const dbName = process.env.DB_NAME || 'file_vault_db';
 const dbPort = parseInt(process.env.DB_PORT || '5432');
 
@@ -16,97 +53,178 @@ if (process.env.DB_HOST) {
   hostPath = `/cloudsql/${process.env.CLOUD_SQL_CONNECTION_NAME}`;
 }
 
-const poolConfig = {
-  user: dbUser,
-  password: dbPassword,
-  database: dbName,
-  host: hostPath,
-  port: dbPort,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
-};
-
-if (process.env.DB_SSL === 'true') {
-  poolConfig.ssl = { rejectUnauthorized: false };
-}
-
-let pool = new Pool(poolConfig);
-
-pool.on('error', (err) => {
-  console.error('[Cloud SQL Pool Error]:', err);
-});
-
-export const memoryStore = {
-  users: [],
-  folders: [],
-  user_folder_permissions: [],
-  file_metadata: [],
-  audit_logs: []
-};
+let pool = null;
 
 /**
- * Execute SQL query against PostgreSQL DB with graceful local fallback and auto-migration
+ * Initialize the connection pool.
+ * Fetches DB password from Secret Manager if configured, otherwise uses env var.
+ */
+async function createPool() {
+  let dbPassword = process.env.DB_PASSWORD || '';
+
+  // Attempt to fetch password from Secret Manager
+  if (process.env.SECRET_DB_PASSWORD_NAME) {
+    const secretValue = await getSecretValue(process.env.SECRET_DB_PASSWORD_NAME);
+    if (secretValue) {
+      dbPassword = secretValue;
+      logger.info('Database password loaded from Secret Manager');
+    }
+  }
+
+  const poolConfig = {
+    user: dbUser,
+    password: dbPassword,
+    database: dbName,
+    host: hostPath,
+    port: dbPort,
+    // Fix M1: 5 connections per Cloud Run instance
+    // With max_instances=10, worst case = 50 connections
+    max: 5,
+    // Return idle connections after 30 seconds
+    idleTimeoutMillis: 30000,
+    // Fail fast if a connection cannot be established in 5 seconds
+    connectionTimeoutMillis: 5000,
+  };
+
+  // Fix M3: Use proper SSL configuration
+  // rejectUnauthorized should be true in production to prevent MITM attacks.
+  // Cloud SQL Proxy handles TLS termination, so SSL is only needed for direct TCP.
+  if (process.env.DB_SSL === 'true') {
+    poolConfig.ssl = {
+      rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false'
+    };
+  }
+
+  pool = new Pool(poolConfig);
+
+  pool.on('error', (err) => {
+    logger.error('PostgreSQL pool error (idle client)', { error: err.message });
+  });
+
+  pool.on('connect', () => {
+    logger.debug('New PostgreSQL client connected to pool');
+  });
+
+  return pool;
+}
+
+// -------------------------------------------------------------------
+// Query Execution with Retry
+// -------------------------------------------------------------------
+
+const MAX_RETRIES = 3;
+const RETRY_BASE_DELAY_MS = 500;
+
+/**
+ * Execute SQL query against PostgreSQL with automatic retry on transient failures.
+ * 
+ * Retries on:
+ * - Connection refused / network errors
+ * - Connection terminated unexpectedly (Cloud SQL restart)
+ * - Statement timeout (if configured)
+ * 
+ * Does NOT retry on:
+ * - Syntax errors
+ * - Constraint violations
+ * - Permission errors
  */
 export async function query(text, params = []) {
-  if (isCloudSql) {
+  if (!pool) {
+    await createPool();
+  }
+
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       const start = Date.now();
       const res = await pool.query(text, params);
       const duration = Date.now() - start;
-      console.log(`[Cloud SQL Query] Executed in ${duration}ms (rows: ${res.rowCount})`);
+
+      if (duration > 1000) {
+        logger.warn('Slow database query', { durationMs: duration, query: text.substring(0, 100) });
+      }
+
       return res;
     } catch (err) {
-      console.error('[Cloud SQL Query Error]:', err.message);
-      if (err.code === '42P01' || (err.message && err.message.includes('does not exist'))) {
-        console.log('[Cloud SQL Query] Auto-creating missing tables...');
-        try {
-          await runMigrations();
-          return await pool.query(text, params);
-        } catch (retryErr) {
-          console.error('[Cloud SQL Retry Error]:', retryErr.message);
-          throw retryErr;
-        }
+      lastError = err;
+
+      // Determine if the error is retryable
+      const isRetryable = (
+        err.code === 'ECONNREFUSED' ||
+        err.code === 'ECONNRESET' ||
+        err.code === 'ETIMEDOUT' ||
+        err.code === '57P01' || // admin_shutdown
+        err.code === '57P03' || // cannot_connect_now
+        err.code === '08006' || // connection_failure
+        err.code === '08001' || // sqlclient_unable_to_establish_sqlconnection
+        (err.message && err.message.includes('Connection terminated'))
+      );
+
+      if (!isRetryable || attempt === MAX_RETRIES) {
+        logger.error('Database query failed', {
+          error: err.message,
+          code: err.code,
+          attempt,
+          query: text.substring(0, 100)
+        });
+        throw err;
       }
-      throw err;
+
+      // Exponential backoff: 500ms, 1000ms, 2000ms
+      const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+      logger.warn(`Database query retry ${attempt}/${MAX_RETRIES} after ${delay}ms`, {
+        error: err.message,
+        code: err.code
+      });
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 
-  return mockQueryHandler(text, params);
+  throw lastError;
 }
 
-/**
- * Initialize DDL tables automatically in Cloud SQL PostgreSQL
- */
+// -------------------------------------------------------------------
+// Database Initialization & Migrations
+// -------------------------------------------------------------------
+
 export async function initDb() {
-  if (!isCloudSql) return;
+  if (!pool) {
+    await createPool();
+  }
 
   try {
-    console.log(`[Database Init] Connecting to Cloud SQL PostgreSQL database (${dbName} at ${hostPath})...`);
+    logger.info('Connecting to PostgreSQL database', { database: dbName, host: hostPath });
     await runMigrations();
   } catch (err) {
     if (err.code === '3D000' || (err.message && err.message.includes('database') && err.message.includes('does not exist'))) {
-      console.log(`[Database Init] Database ${dbName} does not exist. Creating database...`);
+      logger.info(`Database ${dbName} does not exist, creating...`);
       try {
         const rootPool = new Pool({
-          ...poolConfig,
-          database: 'postgres'
+          user: dbUser,
+          password: pool.options?.password || process.env.DB_PASSWORD || '',
+          database: 'postgres',
+          host: hostPath,
+          port: dbPort,
+          max: 1,
+          connectionTimeoutMillis: 5000
         });
         await rootPool.query(`CREATE DATABASE "${dbName}";`);
         await rootPool.end();
-        console.log(`[Database Init] Database ${dbName} created successfully.`);
+        logger.info(`Database ${dbName} created successfully`);
         await runMigrations();
       } catch (createErr) {
-        console.error('[Database Init Error] Failed to create database:', createErr.message);
+        logger.error('Failed to create database', { error: createErr.message });
       }
     } else {
-      console.error('[Database Init Error] Migration error:', err.message);
+      logger.error('Database initialization failed', { error: err.message });
     }
   }
 }
 
 async function runMigrations() {
-  console.log('[Database Init] Running DDL table migrations on Cloud SQL PostgreSQL...');
+  logger.info('Running DDL schema migrations...');
+
+  // Core tables
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
         id VARCHAR(64) PRIMARY KEY,
@@ -140,7 +258,29 @@ async function runMigrations() {
         size_bytes BIGINT NOT NULL,
         uploaded_by VARCHAR(64) REFERENCES users(id),
         gcs_path VARCHAR(512) NOT NULL,
-        uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        status VARCHAR(32) DEFAULT 'UPLOADED',
+        mime_type VARCHAR(255),
+        checksum_sha256 VARCHAR(64),
+        quarantine_path VARCHAR(512),
+        clean_path VARCHAR(512),
+        scan_result TEXT,
+        scanned_at TIMESTAMP WITH TIME ZONE,
+        uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS upload_sessions (
+        id VARCHAR(64) PRIMARY KEY,
+        user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+        folder_id VARCHAR(64) REFERENCES folders(id) ON DELETE CASCADE,
+        file_name VARCHAR(255) NOT NULL,
+        file_size_bytes BIGINT,
+        content_type VARCHAR(255),
+        gcs_upload_url TEXT,
+        object_path VARCHAR(512),
+        status VARCHAR(32) DEFAULT 'INITIATED',
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS audit_logs (
@@ -149,90 +289,66 @@ async function runMigrations() {
         action VARCHAR(64) NOT NULL,
         details TEXT,
         ip_address VARCHAR(45),
+        user_agent TEXT,
+        request_id VARCHAR(64),
+        resource_type VARCHAR(64),
+        resource_id VARCHAR(64),
+        result VARCHAR(32) DEFAULT 'SUCCESS',
         timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
   `);
-  console.log('[Database Init] Cloud SQL PostgreSQL DDL schema migration complete.');
-}
 
-function mockQueryHandler(text, params) {
-  const sql = text.trim();
+  // Schema evolution: Add columns if they don't exist (idempotent)
+  const alterStatements = [
+    "ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'UPLOADED'",
+    "ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS mime_type VARCHAR(255)",
+    "ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS checksum_sha256 VARCHAR(64)",
+    "ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS quarantine_path VARCHAR(512)",
+    "ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS clean_path VARCHAR(512)",
+    "ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS scan_result TEXT",
+    "ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS scanned_at TIMESTAMPTZ",
+    "ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP",
+    "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS user_agent TEXT",
+    "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS request_id VARCHAR(64)",
+    "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS resource_type VARCHAR(64)",
+    "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS resource_id VARCHAR(64)",
+    "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS result VARCHAR(32) DEFAULT 'SUCCESS'"
+  ];
 
-  if (sql.includes('FROM users WHERE LOWER(email) = LOWER($1)') || sql.includes('FROM users WHERE id = $1')) {
-    const emailOrId = (params[0] || '').toLowerCase();
-    const user = memoryStore.users.find(u => u.email.toLowerCase() === emailOrId || u.id === emailOrId);
-    return { rows: user ? [user] : [], rowCount: user ? 1 : 0 };
-  }
-
-  if (sql.includes('FROM users')) {
-    return { rows: memoryStore.users, rowCount: memoryStore.users.length };
-  }
-
-  if (sql.includes('INSERT INTO users')) {
-    const [id, name, email, passwordHash, role] = params;
-    const newUser = { id, name, email, password_hash: passwordHash, role, created_at: new Date().toISOString() };
-    memoryStore.users.unshift(newUser);
-    return { rows: [newUser], rowCount: 1 };
-  }
-
-  if (sql.includes('FROM folders')) {
-    return { rows: memoryStore.folders, rowCount: memoryStore.folders.length };
-  }
-
-  if (sql.includes('INSERT INTO folders')) {
-    const [id, name, path] = params;
-    const newFolder = { id, name, path, created_at: new Date().toISOString() };
-    memoryStore.folders.push(newFolder);
-    return { rows: [newFolder], rowCount: 1 };
-  }
-
-  if (sql.includes('DELETE FROM user_folder_permissions WHERE user_id = $1')) {
-    const userId = params[0];
-    memoryStore.user_folder_permissions = memoryStore.user_folder_permissions.filter(p => p.user_id !== userId);
-    return { rows: [], rowCount: 1 };
-  }
-
-  if (sql.includes('FROM user_folder_permissions')) {
-    return { rows: memoryStore.user_folder_permissions, rowCount: memoryStore.user_folder_permissions.length };
-  }
-
-  if (sql.includes('INSERT INTO user_folder_permissions')) {
-    const [user_id, folder_id, can_upload, can_read] = params;
-    const idx = memoryStore.user_folder_permissions.findIndex(p => p.user_id === user_id && p.folder_id === folder_id);
-    const item = { user_id, folder_id, can_upload: !!can_upload, can_read: !!can_read };
-    if (idx >= 0) {
-      memoryStore.user_folder_permissions[idx] = item;
-    } else {
-      memoryStore.user_folder_permissions.push(item);
+  for (const stmt of alterStatements) {
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      // Ignore "column already exists" errors (expected on re-runs)
+      if (!err.message.includes('already exists')) {
+        logger.warn('Migration ALTER statement warning', { statement: stmt, error: err.message });
+      }
     }
-    return { rows: [item], rowCount: 1 };
   }
 
-  if (sql.includes('FROM file_metadata')) {
-    const folderId = params[0];
-    const files = folderId ? memoryStore.file_metadata.filter(f => f.folder_id === folderId) : memoryStore.file_metadata;
-    return { rows: files, rowCount: files.length };
+  // Performance indexes
+  const indexStatements = [
+    'CREATE INDEX IF NOT EXISTS idx_file_metadata_folder_id ON file_metadata(folder_id)',
+    'CREATE INDEX IF NOT EXISTS idx_file_metadata_status ON file_metadata(status)',
+    'CREATE INDEX IF NOT EXISTS idx_file_metadata_uploaded_by ON file_metadata(uploaded_by)',
+    'CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action)',
+    'CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp)',
+    'CREATE INDEX IF NOT EXISTS idx_user_folder_perms ON user_folder_permissions(user_id, folder_id)',
+    'CREATE INDEX IF NOT EXISTS idx_upload_sessions_user ON upload_sessions(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_upload_sessions_status ON upload_sessions(status)'
+  ];
+
+  for (const stmt of indexStatements) {
+    try {
+      await pool.query(stmt);
+    } catch (err) {
+      // Index creation is idempotent with IF NOT EXISTS
+      logger.debug('Index creation note', { statement: stmt, error: err.message });
+    }
   }
 
-  if (sql.includes('INSERT INTO file_metadata')) {
-    const [id, folder_id, name, size_bytes, uploaded_by, gcs_path] = params;
-    const newFile = { id, folder_id, name, size_bytes, uploaded_by, gcs_path, uploaded_at: new Date().toISOString() };
-    memoryStore.file_metadata.unshift(newFile);
-    return { rows: [newFile], rowCount: 1 };
-  }
-
-  if (sql.includes('FROM audit_logs')) {
-    return { rows: memoryStore.audit_logs, rowCount: memoryStore.audit_logs.length };
-  }
-
-  if (sql.includes('INSERT INTO audit_logs')) {
-    const [id, user_id, action, details, ip_address] = params;
-    const newLog = { id, user_id, action, details, ip_address, timestamp: new Date().toISOString() };
-    memoryStore.audit_logs.unshift(newLog);
-    return { rows: [newLog], rowCount: 1 };
-  }
-
-  return { rows: [], rowCount: 0 };
+  logger.info('Database schema migration complete');
 }
 
 export default pool;

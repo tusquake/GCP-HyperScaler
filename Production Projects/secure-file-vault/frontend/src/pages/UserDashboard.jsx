@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Folder, File, Download, Lock } from 'lucide-react';
+import { Folder, File, Download, Lock, Shield, ShieldAlert, ShieldCheck, Loader2, AlertTriangle } from 'lucide-react';
 import api from '../api/client';
 import LargeFileUploader from '../components/LargeFileUploader';
 
@@ -41,6 +41,17 @@ export default function UserDashboard() {
   };
 
   const handleDownload = async (file) => {
+    // Block download for files that haven't been processed
+    const downloadableStatuses = ['CLEAN', 'UPLOADED', undefined, null];
+    if (!downloadableStatuses.includes(file.status)) {
+      alert(file.status === 'SCANNING' 
+        ? 'File is currently being scanned. Please try again shortly.' 
+        : file.status === 'REJECTED' 
+          ? 'This file was rejected during security scanning and cannot be downloaded.' 
+          : 'File is not available for download.');
+      return;
+    }
+
     setDownloadingId(file.id);
     try {
       const res = await api.get(`/files/download-url/${file.id}`);
@@ -51,10 +62,33 @@ export default function UserDashboard() {
       link.click();
       link.remove();
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to download file');
+      alert(err.response?.data?.message || 'Failed to download file');
     } finally {
       setDownloadingId(null);
     }
+  };
+
+  // File status badge component
+  const StatusBadge = ({ status }) => {
+    const statusConfig = {
+      'CLEAN': { label: 'Verified', color: '#16a34a', bg: '#f0fdf4', icon: ShieldCheck },
+      'UPLOADED': { label: 'Pending Scan', color: '#ca8a04', bg: '#fefce8', icon: Shield },
+      'SCANNING': { label: 'Scanning...', color: '#2563eb', bg: '#eff6ff', icon: Loader2 },
+      'REJECTED': { label: 'Rejected', color: '#dc2626', bg: '#fef2f2', icon: ShieldAlert },
+      'FAILED': { label: 'Scan Failed', color: '#ea580c', bg: '#fff7ed', icon: AlertTriangle },
+    };
+    const config = statusConfig[status] || statusConfig['UPLOADED'];
+    const IconComponent = config.icon;
+    return (
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+        padding: '0.15rem 0.5rem', borderRadius: '12px', fontSize: '0.7rem',
+        fontWeight: 600, color: config.color, background: config.bg
+      }}>
+        <IconComponent size={11} style={status === 'SCANNING' ? { animation: 'spin 1s linear infinite' } : {}} />
+        {config.label}
+      </span>
+    );
   };
 
   const formatBytes = (bytes) => {
@@ -146,42 +180,54 @@ export default function UserDashboard() {
                     <tr>
                       <th>File Name</th>
                       <th>Size</th>
+                      <th>Status</th>
                       <th>Uploaded Date</th>
                       <th style={{ textAlign: 'right' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {files.map(file => (
-                      <tr key={file.id}>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <File size={15} color="#64748b" />
-                            <strong style={{ fontWeight: 500 }}>{file.name}</strong>
-                          </div>
-                        </td>
-                        <td style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>
-                          {formatBytes(file.size_bytes)}
-                        </td>
-                        <td style={{ fontSize: '0.825rem', color: 'var(--text-muted)' }}>
-                          {new Date(file.uploaded_at).toLocaleDateString()}
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          <button 
-                            onClick={() => handleDownload(file)} 
-                            disabled={downloadingId === file.id}
-                            className="btn-secondary" 
-                            style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem' }}
-                          >
-                            <Download size={13} />
-                            <span>{downloadingId === file.id ? 'Signing...' : 'Download'}</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {files.map(file => {
+                      const isDownloadable = ['CLEAN', 'UPLOADED', undefined, null].includes(file.status);
+                      return (
+                        <tr key={file.id}>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <File size={15} color="#64748b" />
+                              <strong style={{ fontWeight: 500 }}>{file.name}</strong>
+                            </div>
+                          </td>
+                          <td style={{ fontSize: '0.825rem', color: 'var(--text-secondary)' }}>
+                            {formatBytes(file.size_bytes)}
+                          </td>
+                          <td>
+                            <StatusBadge status={file.status} />
+                          </td>
+                          <td style={{ fontSize: '0.825rem', color: 'var(--text-muted)' }}>
+                            {new Date(file.uploaded_at).toLocaleDateString()}
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <button 
+                              onClick={() => handleDownload(file)} 
+                              disabled={downloadingId === file.id || !isDownloadable}
+                              className="btn-secondary" 
+                              style={{ 
+                                padding: '0.3rem 0.65rem', fontSize: '0.75rem',
+                                opacity: isDownloadable ? 1 : 0.5,
+                                cursor: isDownloadable ? 'pointer' : 'not-allowed'
+                              }}
+                              title={!isDownloadable ? `File status: ${file.status}` : 'Download file'}
+                            >
+                              <Download size={13} />
+                              <span>{downloadingId === file.id ? 'Signing...' : 'Download'}</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
 
                     {files.length === 0 && (
                       <tr>
-                        <td colSpan="4" style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-muted)', fontSize: '0.825rem' }}>
+                        <td colSpan="5" style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-muted)', fontSize: '0.825rem' }}>
                           No files uploaded to this folder yet.
                         </td>
                       </tr>
