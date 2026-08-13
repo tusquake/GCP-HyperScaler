@@ -1,6 +1,6 @@
 # Secure Enterprise File Vault -- Production Platform
 
-An enterprise-grade, secure file management platform built with React, Node.js Express, Google Cloud SQL (PostgreSQL), Google Cloud Storage (GCS), Google Cloud Run, Cloud Armor WAF, and GCP Secret Manager.
+An enterprise-grade, secure file management platform built with React, Node.js Express, Google Cloud SQL (PostgreSQL), Google Cloud Storage (GCS), Google Cloud Run, Cloud Armor WAF, GCP Secret Manager, and Google Cloud Pub/Sub.
 
 ---
 
@@ -45,11 +45,11 @@ An enterprise-grade, secure file management platform built with React, Node.js E
 ## 2. Key Enterprise Features
 
 - **Service Decoupling**: Separate Frontend Cloud Run (React SPA on Nginx) and Backend Cloud Run (Express API) services for independent scaling and minimal compute waste.
-- **Private Cloud SQL**: PostgreSQL instance configured with private IP only (public IP disabled) accessible solely via Direct VPC Subnet Egress (`10.0.1.0/24`).
-- **3-Bucket GCS Pipeline**: Files land in a `Quarantine` bucket, are validated asynchronously via a Pub/Sub file scanner state machine, and move to `Clean` or `Rejected` buckets before being made downloadable.
+- **Private Cloud SQL**: PostgreSQL instance configured with private IP only (`ipv4_enabled = false`) accessible solely via Direct VPC Subnet Egress (`10.0.1.0/24`).
+- **3-Bucket GCS Pipeline**: Files land in `my-gcp-learning-demo-quarantine`, are validated asynchronously via a Pub/Sub file scanner state machine, and move to `my-gcp-learning-demo-clean` or `my-gcp-learning-demo-rejected` before being made downloadable.
 - **Centralized RBAC Policy Layer**: Server-side authorization middleware (`authorizeFolderAccess` and `authorizeFileAccess`) defending against BOLA/IDOR attacks across all file and folder operations.
 - **Secret Manager Integration**: Database credentials and JWT secrets loaded dynamically from GCP Secret Manager at runtime. Zero hardcoded secrets in source code or environment files.
-- **Hardened Authentication**: Passwords hashed with bcrypt (12 salt rounds), strict password complexity policies, 1-hour access tokens, 7-day refresh tokens, and account enumeration defenses.
+- **Hardened Authentication**: Passwords hashed with bcrypt (12 salt rounds), strict password complexity policies, 1-hour access tokens, 7-day refresh tokens (`POST /auth/refresh`), and account enumeration defenses.
 - **Infrastructure as Code**: Complete Terraform definitions in `terraform/` for reproducible infrastructure management.
 
 ---
@@ -59,7 +59,8 @@ An enterprise-grade, secure file management platform built with React, Node.js E
 ```
 secure-file-vault/
 ├── ARCHITECTURE.md             # Technical architecture & design specification
-├── PRODUCTION_READINESS.md     # Production audit checklist
+├── DEPLOYMENT.md               # Step-by-step GCP gcloud deployment guide for my-gcp-learning-demo
+├── PRODUCTION_READINESS.md     # 20-category production readiness audit checklist
 ├── backend/
 │   ├── Dockerfile              # Multi-stage production Node.js Alpine build
 │   ├── package.json
@@ -103,24 +104,24 @@ secure-file-vault/
 
 ```env
 PORT=8080
-GCP_PROJECT_ID=your-gcp-project-id
+GCP_PROJECT_ID=my-gcp-learning-demo
 
 # Cloud SQL Private IP settings
-CLOUD_SQL_CONNECTION_NAME=your-project:us-central1:secure-app-db
+CLOUD_SQL_CONNECTION_NAME=my-gcp-learning-demo:us-central1:secure-app-db
 DB_HOST=10.0.1.5
-DB_USER=postgres
+DB_USER=vault_app
 DB_NAME=file_vault_db
 DB_PORT=5432
-# DB_PASSWORD is fetched from Secret Manager in production:
-# SECRET_DB_PASSWORD_NAME=projects/PROJECT_ID/secrets/db-password/versions/latest
+# DB_PASSWORD is loaded dynamically from Secret Manager in production:
+SECRET_DB_PASSWORD_NAME=projects/my-gcp-learning-demo/secrets/db-password/versions/latest
 
 # Google Cloud Storage (3-Bucket Architecture)
-GCS_QUARANTINE_BUCKET=your-project-quarantine
-GCS_CLEAN_BUCKET=your-project-clean
-GCS_REJECTED_BUCKET=your-project-rejected
+GCS_QUARANTINE_BUCKET=my-gcp-learning-demo-quarantine
+GCS_CLEAN_BUCKET=my-gcp-learning-demo-clean
+GCS_REJECTED_BUCKET=my-gcp-learning-demo-rejected
 
 # CORS Allowed Origins (comma-separated)
-ALLOWED_ORIGINS=https://vault.example.com
+ALLOWED_ORIGINS=https://secure-file-vault-frontend-xyz.a.run.app
 
 # Pub/Sub Integration
 PUBSUB_ENABLED=true
@@ -129,7 +130,42 @@ PUBSUB_TOPIC=file-uploaded-topic
 
 ---
 
-## 5. Development & Build Verification
+## 5. Deployment Instructions
+
+For complete step-by-step `gcloud` CLI commands configured specifically for project **`my-gcp-learning-demo`**, refer to **[DEPLOYMENT.md](DEPLOYMENT.md)**.
+
+### Quick Deployment Summary
+
+```bash
+# 1. Set GCP project
+gcloud config set project my-gcp-learning-demo
+
+# 2. Build & Deploy Backend Cloud Run API
+gcloud builds submit --tag="us-central1-docker.pkg.dev/my-gcp-learning-demo/secure-vault-repo/backend:v1.0.0" ./backend
+
+gcloud run deploy secure-file-vault-backend \
+  --image="us-central1-docker.pkg.dev/my-gcp-learning-demo/secure-vault-repo/backend:v1.0.0" \
+  --region="us-central1" \
+  --service-account="file-vault-backend-sa@my-gcp-learning-demo.iam.gserviceaccount.com" \
+  --network=file-vault-vpc \
+  --subnet=file-vault-subnet \
+  --vpc-egress=all-traffic
+
+# 3. Build & Deploy Frontend Cloud Run SPA
+BACKEND_URL=$(gcloud run services describe secure-file-vault-backend --region="us-central1" --format="value(status.url)")
+
+gcloud builds submit --tag="us-central1-docker.pkg.dev/my-gcp-learning-demo/secure-vault-repo/frontend:v1.0.0" --substitutions="_VITE_API_BASE_URL=${BACKEND_URL}/api" ./frontend
+
+gcloud run deploy secure-file-vault-frontend \
+  --image="us-central1-docker.pkg.dev/my-gcp-learning-demo/secure-vault-repo/frontend:v1.0.0" \
+  --region="us-central1" \
+  --service-account="file-vault-frontend-sa@my-gcp-learning-demo.iam.gserviceaccount.com" \
+  --allow-unauthenticated
+```
+
+---
+
+## 6. Build & Local Verification
 
 ### Local Development
 

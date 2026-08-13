@@ -67,6 +67,14 @@ Section 13: Data & Analytics ──────────►  Section 14: Reli
 
 ---
 
+## Production Projects
+
+| Project Name | Architecture Highlights | Key GCP Services & Tech Stack | Documentation & Deployment Guide |
+|---|---|---|---|
+| **Secure Enterprise File Vault** | Decoupled SPA/API, Private Cloud SQL (No Public IP), Direct VPC Subnet Egress, 3-Bucket GCS Pipeline, Async Malware Scanner State Machine, Centralized RBAC (BOLA/IDOR defense), Secret Manager | Cloud Run (Frontend & Backend), Cloud SQL PostgreSQL, GCS, Secret Manager, Pub/Sub, Cloud Armor WAF, Terraform, React SPA, Node.js Express API | [Project README](Production%20Projects/secure-file-vault/README.md) \| [GCP Deployment Guide](Production%20Projects/secure-file-vault/DEPLOYMENT.md) \| [Architecture Spec](Production%20Projects/secure-file-vault/ARCHITECTURE.md) \| [Production Audit](Production%20Projects/secure-file-vault/PRODUCTION_READINESS.md) |
+
+---
+
 ## Quick Start Guide: Deploying Projects in Cloud Shell
 
 ### 1. Clone Repository in GCP Cloud Shell
